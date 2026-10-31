@@ -1,0 +1,6 @@
+[package]
+description = Zeek 자산 식별(AssetID) 신호 수집 - NSM 자산 식별 PoC
+tags = asset, inventory, dhcp, kerberos, ntlm, nbns
+script_dir = scripts
+test_command = cd tests/btest && btest -d
+version = 0.1.0

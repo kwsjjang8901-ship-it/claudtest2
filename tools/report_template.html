@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>자산 식별 리포트 - __TITLE__</title>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --text: #1d2330; --muted: #667085; --line: #e3e6eb;
+  --accent: #2f6fde; --accent-soft: #e6eefc; --good: #1f8a4c; --warn: #b26a00; --bad: #c0392b;
+  --chip: #eef0f3; --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #12151b; --panel: #1a1e26; --text: #e5e8ee; --muted: #98a2b3; --line: #2a303b;
+    --accent: #6d9cff; --accent-soft: #1f2a40; --good: #4cc38a; --warn: #f0a640; --bad: #ff6b5b;
+    --chip: #252a34;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 14px/1.5 -apple-system, "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif; }
+header { padding: 20px 24px 8px; }
+h1 { margin: 0; font-size: 20px; }
+h2 { font-size: 15px; margin: 0 0 10px; }
+.sub { color: var(--muted); font-size: 12px; margin-top: 4px; word-break: break-all; }
+main { padding: 8px 24px 40px; display: grid; gap: 16px; }
+main > *, .grid2 > * { min-width: 0; }
+#notes li, .sub { overflow-wrap: anywhere; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+.card .v { font-size: 24px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.card .k { color: var(--muted); font-size: 12px; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+.bar-row { display: grid; grid-template-columns: 110px 1fr 70px; align-items: center; gap: 8px; margin: 6px 0; }
+.bar { height: 10px; background: var(--chip); border-radius: 5px; overflow: hidden; }
+.bar > span { display: block; height: 100%; background: var(--accent); }
+.num { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); font-size: 12px; }
+.chips span { display: inline-block; background: var(--chip); border-radius: 999px; padding: 1px 8px; margin: 2px 4px 2px 0; font-size: 12px; }
+.toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+input[type=search], select { background: var(--panel); color: var(--text); border: 1px solid var(--line);
+  border-radius: 6px; padding: 6px 10px; font: inherit; }
+input[type=search] { flex: 1; min-width: 200px; }
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--muted); font-weight: 600; font-size: 12px; cursor: pointer; user-select: none; white-space: nowrap; }
+tr.asset { cursor: pointer; }
+tr.asset:hover td { background: var(--accent-soft); }
+td.mono, .mono { font-family: var(--mono); font-size: 12px; }
+.badge { display: inline-block; border-radius: 4px; padding: 0 6px; font-size: 12px; white-space: nowrap; }
+.b-높음 { background: color-mix(in srgb, var(--good) 18%, transparent); color: var(--good); }
+.b-중간 { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
+.b-낮음 { background: color-mix(in srgb, var(--bad) 15%, transparent); color: var(--bad); }
+.b-미관리 { background: color-mix(in srgb, var(--bad) 15%, transparent); color: var(--bad); }
+.b-관리 { background: color-mix(in srgb, var(--good) 18%, transparent); color: var(--good); }
+tr.detail td { background: var(--bg); }
+.detail-grid { display: grid; grid-template-columns: 140px 1fr; gap: 4px 12px; margin-bottom: 10px; }
+.detail-grid div:nth-child(odd) { color: var(--muted); }
+.muted { color: var(--muted); }
+ul.plain { margin: 0; padding-left: 18px; }
+footer { color: var(--muted); font-size: 12px; padding: 0 24px 24px; }
+@media (max-width: 640px) {
+  header, main, footer { padding-left: 16px; padding-right: 16px; }
+  .detail-grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>Zeek 자산 식별 PoC 리포트</h1>
+  <div class="sub" id="meta"></div>
+</header>
+<main>
+  <section class="cards" id="cards"></section>
+  <section class="grid2">
+    <div class="panel"><h2>키 커버리지</h2><div id="coverage"></div></div>
+    <div class="panel"><h2>식별 키별 자산 수</h2><div id="idtypes"></div>
+      <h2 style="margin-top:14px">신호 종류 / 출처</h2><div class="chips" id="bysignal"></div><div class="chips" id="bysource"></div></div>
+  </section>
+  <section class="panel" id="notes-panel"><h2>확인 필요 항목</h2><div id="notes"></div></section>
+  <section class="panel">
+    <h2>자산 목록</h2>
+    <div class="toolbar">
+      <input type="search" id="q" placeholder="호스트명, IP, MAC, OS, 역할, 계정 검색">
+      <select id="f-id"><option value="">식별 키: 전체</option></select>
+      <select id="f-managed"><option value="">관리 여부: 전체</option><option value="미관리">미관리</option><option value="관리">관리</option></select>
+      <span class="muted" id="count"></span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th data-k="display_name">호스트명</th><th data-k="id_label">식별 키</th><th data-k="ips_text">IP</th>
+          <th data-k="mac">MAC</th><th data-k="os">OS</th><th data-k="roles_text">역할</th>
+          <th data-k="domain">도메인</th><th data-k="managed_text">관리</th><th data-k="last_seen">마지막 관측</th>
+        </tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+<footer>행을 누르면 자산별 근거 신호가 보입니다. 원본: asset_signal.log / 판정: tools/asset_resolver.py</footer>
+<script>
+const D = /*__DATA__*/null;
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const st = D.stats;
+
+$("meta").textContent = `입력: ${D.src} · 관측 구간: ${(st.time_range || []).join(" ~ ")} · 생성: ${D.generated}`;
+
+const cards = [
+  ["자산", st.asset_count],
+  ["자산 신호", st.signal_count],
+  ["공유 MAC", Object.keys(D.shared_macs).length],
+  ["IP 재사용", Object.keys(D.reused_ips).length],
+];
+if (st.agents_given) cards.splice(1, 0, ["미관리 자산", st.managed[1]], ["관리 자산", st.managed[0]]);
+if (st.volume) cards.push(["로그량(원본 대비)", st.volume[2] + "%"]);
+$("cards").innerHTML = cards.map(([k, v]) => `<div class="card"><div class="v">${esc(v)}</div><div class="k">${esc(k)}</div></div>`).join("");
+
+const bars = (rows, total) => rows.map(([k, v, pct]) => {
+  const p = pct ?? (total ? 100 * v / total : 0);
+  return `<div class="bar-row"><div>${esc(k)}</div><div class="bar"><span style="width:${p.toFixed(1)}%"></span></div><div class="num">${v} · ${p.toFixed(0)}%</div></div>`;
+}).join("");
+$("coverage").innerHTML = bars(st.coverage);
+$("idtypes").innerHTML = bars(st.by_id_type, st.asset_count);
+$("bysignal").innerHTML = st.by_signal.map(([k, v]) => `<span>${esc(k)} ${v}</span>`).join("");
+$("bysource").innerHTML = st.by_source.map(([k, v]) => `<span>${esc(k)} ${v}</span>`).join("");
+
+const notes = [];
+for (const [mac, ips] of Object.entries(D.shared_macs))
+  notes.push(`<li><b class="mono">${esc(mac)}</b> 가 conn에서 IP ${ips.length}개에 보임 → 게이트웨이/라우터 MAC으로 보고 식별 키에서 제외 <span class="muted mono">(${esc(ips.slice(0, 6).join(", "))}${ips.length > 6 ? " …" : ""})</span></li>`);
+for (const [ip, ts] of Object.entries(D.reused_ips))
+  notes.push(`<li><b class="mono">${esc(ip)}</b> 의 점유 단말이 바뀜 (${esc(ts.join(", "))}) → 자산을 나눔</li>`);
+const ipOnly = D.assets.filter((a) => a.id_type === "ip").length;
+if (ipOnly) notes.push(`<li>식별 키 없이 IP+시간으로만 남은 자산 ${ipOnly}개 (라우팅 구간 또는 신호 부족)</li>`);
+$("notes").innerHTML = notes.length ? `<ul class="plain">${notes.join("")}</ul>` : `<span class="muted">없음</span>`;
+
+const idSel = $("f-id");
+[...new Set(D.assets.map((a) => a.id_label))].forEach((l) => idSel.insertAdjacentHTML("beforeend", `<option>${esc(l)}</option>`));
+if (!st.agents_given) $("f-managed").style.display = "none";
+
+D.assets.forEach((a) => {
+  a.mac = a.macs[0] || "";
+  a.roles_text = a.roles.join(", ");
+  a.search = [a.hostname, a.fqdn, a.domain, a.os, a.roles_text, a.ips_text, a.macs, a.machine_accounts, a.users,
+    a.dns_names, a.hostnames, a.dhcp_client_ids, a.via_gateway_mac, a.id_value, a.asset_id].flat().join(" ").toLowerCase();
+});
+
+let sortKey = null, sortDir = 1, openId = null;
+document.querySelectorAll("th[data-k]").forEach((th) => th.addEventListener("click", () => {
+  const k = th.dataset.k;
+  sortDir = sortKey === k ? -sortDir : 1;
+  sortKey = k;
+  render();
+}));
+["q", "f-id", "f-managed"].forEach((id) => $(id).addEventListener("input", render));
+
+function detail(a) {
+  const row = (k, v) => v && v.length ? `<div>${esc(k)}</div><div class="mono">${Array.isArray(v) ? v.map(esc).join("<br>") : esc(v)}</div>` : "";
+  const sigs = (D.signals[a.asset_id] || []).map((s) =>
+    `<tr><td class="mono">${esc(s[0])}</td><td class="mono">${esc(s[1])}</td><td>${esc(s[2])}</td><td class="mono">${esc(s[3])}</td><td>${esc(s[4])}</td><td class="num">${s[5]}</td></tr>`).join("");
+  return `<div class="detail-grid">
+    ${row("asset_id", a.asset_id)}${row("대표 키", `${a.id_label}: ${a.id_value}`)}
+    ${row("IP 점유 구간", a.ips.map((i) => `${i.ip}  ${i.first} ~ ${i.last}`))}
+    ${row("호스트명 후보", a.hostnames)}${row("FQDN", a.fqdn)}${row("머신 계정", a.machine_accounts)}
+    ${row("DHCP client-id", a.dhcp_client_ids)}${row("MAC", a.macs)}${row("게이트웨이 경유 MAC", a.via_gateway_mac)}
+    ${row("OS 후보", a.os_hints)}${row("서비스", a.services)}${row("사용자 계정", a.users)}
+    ${row("DNS 이름", a.dns_names)}${row("소프트웨어", a.software)}
+    ${row("DHCP vendor", a.dhcp_vendor_class)}${row("DHCP 지문", a.dhcp_fingerprint)}
+    ${row("신호 출처", Object.entries(a.sources).map(([k, v]) => `${k}:${v}`).join(" "))}
+  </div>
+  <div class="table-wrap"><table><thead><tr><th>시각</th><th>IP</th><th>신호</th><th>값</th><th>출처</th><th>신뢰도</th></tr></thead><tbody>${sigs}</tbody></table></div>`;
+}
+
+function render() {
+  const q = $("q").value.trim().toLowerCase();
+  const fid = $("f-id").value, fm = $("f-managed").value;
+  let list = D.assets.filter((a) => (!q || a.search.includes(q)) && (!fid || a.id_label === fid) &&
+    (!fm || (fm === "미관리" ? a.managed === false : a.managed === true)));
+  if (sortKey) list = list.slice().sort((x, y) => String(x[sortKey] || "~").localeCompare(String(y[sortKey] || "~"), "ko", {numeric: true}) * sortDir);
+  $("count").textContent = `${list.length} / ${D.assets.length}개`;
+  $("rows").innerHTML = list.map((a) => {
+    const m = a.managed === null ? "-" : `<span class="badge b-${a.managed ? "관리" : "미관리"}">${esc(a.managed_text)}</span>`;
+    const tr = `<tr class="asset" data-id="${esc(a.asset_id)}">
+      <td><b>${esc(a.display_name || "-")}</b></td>
+      <td><span class="badge b-${esc(a.confidence)}">${esc(a.confidence)}</span> ${esc(a.id_label)}</td>
+      <td class="mono">${a.ips.map((i) => esc(i.ip)).join("<br>")}</td>
+      <td class="mono">${esc(a.mac || "-")}</td><td>${esc(a.os || "-")}</td><td>${esc(a.roles_text || "-")}</td>
+      <td>${esc(a.domain || "-")}</td><td>${m}</td><td class="mono">${esc(a.last_seen)}</td></tr>`;
+    return tr + (openId === a.asset_id ? `<tr class="detail"><td colspan="9">${detail(a)}</td></tr>` : "");
+  }).join("");
+  document.querySelectorAll("tr.asset").forEach((tr) => tr.addEventListener("click", () => {
+    openId = openId === tr.dataset.id ? null : tr.dataset.id;
+    render();
+  }));
+}
+render();
+</script>
+</body>
+</html>
