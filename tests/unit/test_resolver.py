@@ -59,6 +59,21 @@ class TestResolver(unittest.TestCase):
         self.assertEqual(len(r["assets"]), 1)
         self.assertEqual(r["assets"][0]["id_type"], "machine_account")
 
+    def test_asymmetric_route_mac_does_not_split_or_merge(self):
+        # 프록시 2대: 자기 MAC + 응답 경로의 방화벽 MAC(두 IP 공유)이 conn에서 번갈아 보임
+        fw = "94:3f:c2:dd:ff:4e"
+        r = resolve([
+            sig(0, "172.25.1.15", "mac", "7c:c2:55:65:a4:f4", "conn", 40),
+            sig(0, "172.25.1.15", "mac", fw, "conn", 40),
+            sig(0, "172.25.1.16", "mac", "7c:c2:55:65:a3:f4", "conn", 40),
+            sig(0, "172.25.1.16", "mac", fw, "conn", 40),
+            sig(H, "172.25.1.15", "mac", "7c:c2:55:65:a4:f4", "conn", 40),
+            sig(H + 10, "172.25.1.15", "mac", fw, "conn", 40),
+        ])
+        self.assertEqual(r["reused_ips"], {})
+        self.assertIn(fw, r["shared_macs"])
+        self.assertEqual(sorted(a["macs"][0] for a in r["assets"]), ["7c:c2:55:65:a3:f4", "7c:c2:55:65:a4:f4"])
+
     def test_shared_gateway_mac_is_not_identity(self):
         gw = "00:00:5e:00:01:01"
         sigs = [sig(i, "10.20.0.%d" % i, "mac", gw, "conn", 40) for i in range(1, 5)]

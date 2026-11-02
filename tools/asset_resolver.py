@@ -5,10 +5,11 @@
     머신 계정 > DHCP client-id > MAC > 호스트명(+도메인) > IP+시간 구간
 
 알고리즘
-  1. 공유 MAC 판별: conn 출처 MAC이 여러 IP(기본 3개 이상)에 걸치면 게이트웨이/라우터 MAC으로
+  1. 공유 MAC 판별: conn 출처 MAC이 여러 IP(기본 2개 이상)에 걸치면 게이트웨이/라우터/방화벽 MAC으로
      보고 식별 키에서 제외한다(ARP/DHCP 출처 MAC은 유지).
-  2. IP 점유 구간(tenancy) 분할: IP별 신호를 시간순으로 보며, 강한 키(머신 계정, client-id, MAC)가
+  2. IP 점유 구간(tenancy) 분할: IP별 신호를 시간순으로 보며, 강한 키(머신 계정, client-id, L2 MAC)가
      기존 값과 다르게 나타나거나 max-idle 이상 신호가 끊기면 새 점유 구간을 시작한다.
+     conn 출처 MAC은 라우팅 경로(요청/응답 방향)에 따라 바뀌므로 분할 근거로 쓰지 않는다.
      -> DHCP로 같은 IP를 다른 단말이 받아도 자산이 섞이지 않는다.
   3. 점유 구간 결합: 같은 식별 키(머신 계정/client-id/MAC/호스트명)를 공유하는 구간을 하나의 자산으로
      묶는다. 단, 강한 키 값이 서로 다르면 묶지 않는다(오결합보다 중복을 택함).
@@ -182,7 +183,9 @@ def build_tenancies(sigs, shared_macs, domain_names, max_idle):
         for s in lst:
             ident = identity_of(s, shared_macs, domain_names)
             new = cur is None or s.ts - cur.last > max_idle
-            if not new and ident and ident[0] in STRONG:
+            # conn L2 주소는 경로에 따라 바뀌는 약한 증거라 점유 단말 변경 근거로 쓰지 않는다.
+            splits_on = ident and ident[0] in STRONG and not (ident[0] == "mac" and s.source == "conn")
+            if not new and splits_on:
                 old = cur.strong.get(ident[0])
                 new = old is not None and old != ident[1]
             if new:
@@ -209,7 +212,7 @@ class DSU:
         return x
 
 
-def resolve(sigs, shared_threshold=3, max_idle=86400):
+def resolve(sigs, shared_threshold=2, max_idle=86400):
     domain_names = set()
     for s in sigs:
         if s.signal == "domain":
@@ -637,8 +640,8 @@ def main(argv=None):
     ap.add_argument("signal_log", help="Zeek asset_signal.log (JSON)")
     ap.add_argument("-o", "--out-dir", default=".", help="출력 디렉터리 (기본: 현재)")
     ap.add_argument("-z", "--zeek-dir", help="Zeek 로그 디렉터리 (로그량 비교용, 기본: signal_log 위치)")
-    ap.add_argument("--shared-mac-threshold", type=int, default=3,
-                    help="conn 출처 MAC이 이 개수 이상의 IP에 보이면 공유 MAC으로 판단 (기본 3)")
+    ap.add_argument("--shared-mac-threshold", type=int, default=2,
+                    help="conn 출처 MAC이 이 개수 이상의 IP에 보이면 공유 MAC으로 판단 (기본 2)")
     ap.add_argument("--max-idle", type=float, default=24, help="IP 신호가 이 시간(시) 이상 끊기면 새 점유 구간 (기본 24)")
     ap.add_argument("--tz", type=float, default=9, help="표시 시간대 UTC 오프셋(시) (기본 9 = KST)")
     ap.add_argument("-q", "--quiet", action="store_true", help="터미널에 리포트를 출력하지 않음")
