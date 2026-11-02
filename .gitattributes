@@ -1,0 +1,4 @@
+# Linux에서 실행하는 스크립트이므로 Windows에서 체크아웃해도 LF를 유지한다.
+* text=auto eol=lf
+*.pcap binary
+*.pcapng binary
