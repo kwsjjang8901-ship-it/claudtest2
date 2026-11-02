@@ -415,6 +415,51 @@ def write_csv(path, assets, tz):
             w.writerow(row)
 
 
+def capture_health(zeek_dir):
+    """conn.log로 미러 품질 점검: TCP 연결 중 양방향(요청+응답)이 보인 비율.
+    history의 대문자는 연결 시작측, 소문자는 응답측 활동이다. JSON/TSV 둘 다 읽는다."""
+    path = os.path.join(zeek_dir or "", "conn.log")
+    if not zeek_dir or not os.path.isfile(path):
+        return None
+    tcp = both = orig_only = resp_only = 0
+    fields = None
+    with open(path, encoding="utf-8", errors="replace") as f:
+        for line in f:
+            if line.startswith("#fields"):
+                fields = line.rstrip("\n").split("\t")[1:]
+                continue
+            if line.startswith("#") or not line.strip():
+                continue
+            if line[0] == "{":
+                try:
+                    d = json.loads(line)
+                except ValueError:
+                    continue
+            elif fields:
+                d = dict(zip(fields, line.rstrip("\n").split("\t")))
+            else:
+                continue
+            if d.get("proto") != "tcp":
+                continue
+            h = d.get("history") or ""
+            tcp += 1
+            up, low = any(c.isupper() for c in h), any(c.islower() for c in h)
+            if up and low:
+                both += 1
+            elif up:
+                orig_only += 1
+            elif low:
+                resp_only += 1
+    if not tcp:
+        return None
+    return {"tcp": tcp, "both": both, "orig_only": orig_only, "resp_only": resp_only,
+            "both_pct": round(100.0 * both / tcp, 1)}
+
+
+# 양방향 비율이 이보다 낮으면 단방향 미러로 의심한다.
+BIDIR_WARN_PCT = 50
+
+
 def stats(result, sigs, zeek_dir, signal_path):
     assets = result["assets"]
     n = len(assets) or 1
@@ -443,6 +488,7 @@ def stats(result, sigs, zeek_dir, signal_path):
         "by_id_type": [(KEY_LABEL[k], sum(1 for a in assets if a["id_type"] == k)) for k in KEY_PRIORITY],
         "coverage": [(k, v, 100.0 * v / n) for k, v in coverage],
         "volume": vol,
+        "capture": capture_health(zeek_dir),
     }
 
 
@@ -461,6 +507,14 @@ def write_report(path, result, st, tz, src):
         sig_b, total_b = st["volume"]
         ratio = (100.0 * sig_b / total_b) if total_b else 0
         p("로그량          : asset_signal %s / Zeek 전체 로그 %s (%.1f%%)" % (hsize(sig_b), hsize(total_b), ratio))
+    cap = st["capture"]
+    if cap:
+        p("캡처 품질       : TCP 연결 %d개 중 양방향 %.1f%% (요청만 %d, 응답만 %d)" % (
+            cap["tcp"], cap["both_pct"], cap["orig_only"], cap["resp_only"]))
+        if cap["both_pct"] < BIDIR_WARN_PCT:
+            p("  ! 단방향 미러 의심: 응답(또는 요청) 패킷이 대부분 없음. 서비스/서버 응답 기반 신호")
+            p("    (서비스, DNS 응답, NTLM CHALLENGE, SSH 서버 배너 등)가 수집되지 않는다.")
+            p("    SPAN을 양방향(both/rx+tx)으로 설정하거나, TAP 두 포트를 mergecap으로 합쳐서 다시 측정 필요.")
     p("")
     p("[자산 요약]  총 %d개" % st["asset_count"])
     for label, c in st["by_id_type"]:
@@ -557,6 +611,8 @@ def write_html(path, result, st, tz, src, sigs):
             "coverage": st["coverage"],
             "by_signal": st["by_signal"],
             "by_source": st["by_source"],
+            "capture": st["capture"],
+            "bidir_warn_pct": BIDIR_WARN_PCT,
             "volume": [hsize(v) for v in st["volume"]] + [round(100.0 * st["volume"][0] / st["volume"][1], 1) if st["volume"][1] else 0] if st["volume"] else None,
         },
         "shared_macs": result["shared_macs"],

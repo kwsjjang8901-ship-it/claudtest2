@@ -147,6 +147,19 @@ class TestResolver(unittest.TestCase):
         self.assertEqual(list(r["dup_hostnames"]), ["desktop-1"])
 
 
+class TestCaptureHealth(unittest.TestCase):
+    def test_one_way_mirror_detected(self):
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, "conn.log"), "w") as f:
+                for h in ("ShADadFf", "S", "ShAD", "D", "Dd"):
+                    f.write(json.dumps({"proto": "tcp", "history": h}) + "\n")
+                f.write(json.dumps({"proto": "udp", "history": "D"}) + "\n")
+            cap = ar.capture_health(d)
+        self.assertEqual((cap["tcp"], cap["both"], cap["orig_only"]), (5, 3, 2))
+        self.assertEqual(cap["both_pct"], 60.0)
+        self.assertIsNone(ar.capture_health(None))
+
+
 class TestCli(unittest.TestCase):
     def test_outputs_created(self):
         with tempfile.TemporaryDirectory() as d:

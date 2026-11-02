@@ -113,6 +113,7 @@ const cards = [
   ["IP 재사용", Object.keys(D.reused_ips).length],
 ];
 if (st.volume) cards.push(["로그량(원본 대비)", st.volume[2] + "%"]);
+if (st.capture) cards.push(["양방향 TCP 비율", st.capture.both_pct + "%"]);
 $("cards").innerHTML = cards.map(([k, v]) => `<div class="card"><div class="v">${esc(v)}</div><div class="k">${esc(k)}</div></div>`).join("");
 
 const bars = (rows, total) => rows.map(([k, v, pct]) => {
@@ -131,6 +132,9 @@ for (const [ip, ts] of Object.entries(D.reused_ips))
   notes.push(`<li><b class="mono">${esc(ip)}</b> 의 점유 단말이 바뀜 (${esc(ts.join(", "))}) → 자산을 나눔</li>`);
 for (const [name, ids] of Object.entries(D.dup_hostnames || {}))
   notes.push(`<li>호스트명 <b class="mono">${esc(name)}</b> 이 자산 ${ids.length}개에 있음 → MAC이 달라 합치지 않음 (VM 복제/이미지 배포 의심)</li>`);
+const cap = st.capture;
+if (cap && cap.both_pct < st.bidir_warn_pct)
+  notes.unshift(`<li><b>단방향 미러 의심:</b> TCP 연결 ${cap.tcp}개 중 양방향은 ${cap.both_pct}% (요청만 ${cap.orig_only}, 응답만 ${cap.resp_only}). 서비스·DNS 응답·서버 이름 응답 등 응답측 신호가 수집되지 않습니다. SPAN 양방향 설정 또는 TAP 두 포트 병합(mergecap) 후 재측정이 필요합니다.</li>`);
 const ipOnly = D.assets.filter((a) => a.id_type === "ip").length;
 if (ipOnly) notes.push(`<li>식별 키 없이 IP+시간으로만 남은 자산 ${ipOnly}개 (라우팅 구간 또는 신호 부족)</li>`);
 $("notes").innerHTML = notes.length ? `<ul class="plain">${notes.join("")}</ul>` : `<span class="muted">없음</span>`;
