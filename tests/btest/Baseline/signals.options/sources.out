@@ -4,7 +4,7 @@
       1 http
       5 http_ua
       7 kerberos
-      4 ldap
+      8 ldap
       1 llmnr
       1 mdns
       3 nbns

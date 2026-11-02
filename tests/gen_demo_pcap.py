@@ -47,6 +47,7 @@ INTERNET = "93.184.215.14"
 REMOTE = ["10.20.5.%d" % i for i in range(11, 16)]
 NTLM_CLIENT = "10.20.5.13"
 NTLM_SERVER = ("10.10.1.30", "00:50:56:aa:30:30")
+PROXY = ("10.10.1.40", "00:50:56:aa:40:40")
 
 pkts = []
 rng = random.Random(7)
@@ -155,13 +156,34 @@ def dns_answer(t, cli, cli_mac, qname, rrs, qtype="A", srv=DC, sport=53, dport=N
        / UDP(sport=sport, dport=cport) / r)
 
 
-def cldap_netlogon(t, cli, cli_mac, host, domain="corp.local"):
+def proxy_session(t, cli, cli_mac, payloads, dport=3128):
+    """프록시 연결: payloads = [(방향 'c'|'s', bytes), ...] 순서대로 주고받는다."""
+    sport = rng.randint(49152, 65000)
+    seq = {"c": rng.randint(1, 2**31), "s": rng.randint(1, 2**31)}
+    ends = {"c": (cli, cli_mac, sport), "s": (PROXY[0], PROXY[1], dport)}
+
+    def pkt(d, flags, data=b""):
+        o = "s" if d == "c" else "c"
+        (sip, smac, sp), (dip, dmac, dp) = ends[d], ends[o]
+        p = eth(smac, dmac) / IP(src=sip, dst=dip) / TCP(sport=sp, dport=dp, flags=flags, seq=seq[d], ack=seq[o])
+        return p / Raw(data) if data else p
+
+    at(t, eth(cli_mac, PROXY[1]) / IP(src=cli, dst=PROXY[0]) / TCP(sport=sport, dport=dport, flags="S", seq=seq["c"] - 1))
+    at(t + 0.001, pkt("s", "SA"))
+    seq["s"] += 1
+    at(t + 0.002, pkt("c", "A"))
+    for i, (d, data) in enumerate(payloads):
+        at(t + 0.003 + i * 0.001, pkt(d, "PA", data))
+        seq[d] += len(data)
+
+
+def cldap_netlogon(t, cli, cli_mac, host, domain="corp.local", user=True):
     """DC 찾기 Netlogon ping: (&(DnsDomain=..)(Host=..)(User=HOST$)(NtVer=..)) 를 CLDAP(udp/389)로."""
     def eq(a, v):
         return LDAP_Filter(filter=LDAP_FilterEqual(attributeType=ASN1_STRING(a), attributeValue=ASN1_STRING(v)))
     flt = LDAP_Filter(filter=LDAP_FilterAnd(vals=[
-        eq(b"DnsDomain", domain.encode()), eq(b"Host", host.encode()),
-        eq(b"User", host.encode() + b"$"), eq(b"NtVer", b"\x16\x00\x00\x20")]))
+        eq(b"DnsDomain", domain.encode()), eq(b"Host", host.encode())]
+        + ([eq(b"User", host.encode() + b"$")] if user else []) + [eq(b"NtVer", b"\x16\x00\x00\x20")]))
     req = LDAP(messageID=rng.randint(1, 1000), protocolOp=LDAP_SearchRequest(
         baseObject=b"", scope=0, filter=flt,
         attributes=[LDAP_SearchRequestAttribute(type=ASN1_STRING(b"Netlogon"))]))
@@ -270,6 +292,18 @@ def build(ntlm_trace=None):
     tls_hello(16 * m, HR01[0], HR01[1], WEB[0], WEB[1], "portal.corp.local")
     req = b"GET / HTTP/1.1\r\nHost: intranet.corp.local\r\nUser-Agent: curl/8.5.0\r\n\r\n"
     tcp_session(16 * m + 5, HR01[0], HR01[1], WEB[0], WEB[1], 80, req, b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")
+
+    # User 없는 Netlogon ping -> Host$ 를 머신 계정으로
+    cldap_netlogon(17 * m, "10.20.5.12", GW[1], "BRANCH-PC12", user=False)
+    # 프록시 경유 요청: 외부 사이트 이름(Host/SNI)이 프록시의 서버 이름으로 붙으면 안 된다
+    hello = TLS(msg=[TLSClientHello(ext=[TLS_Ext_ServerName(servernames=[ServerName(servername=b"www.example.com")])])])
+    proxy_session(18 * m, HR01[0], HR01[1], [
+        ("c", b"CONNECT www.example.com:443 HTTP/1.1\r\nHost: www.example.com:443\r\n\r\n"),
+        ("s", b"HTTP/1.1 200 Connection established\r\n\r\n"),
+        ("c", bytes(hello))])
+    proxy_session(18 * m + 5, HR01[0], HR01[1], [
+        ("c", b"GET http://news.example.com/ HTTP/1.1\r\nHost: news.example.com\r\n\r\n"),
+        ("s", b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")])
 
     pkts.sort(key=lambda p: p.time)
     return pkts

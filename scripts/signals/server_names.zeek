@@ -2,6 +2,9 @@
 ##!   SMB 공유 경로(\\server\share), TLS SNI, HTTP Host -> 응답측 IP의 dns_name
 ##!
 ##! 별칭(CNAME, DFS, 가상 호스트)일 수 있으므로 식별 키가 아니라 표시용 이름이다.
+##!
+##! 프록시를 거친 요청(CONNECT, 절대 URL)의 Host/SNI는 외부 사이트 이름이므로 제외한다.
+##! 그래도 이름이 몰리는 IP(프록시, 로드밸런서)는 max_server_names 개까지만 기록한다.
 
 @load base/protocols/smb
 @load base/protocols/ssl
@@ -10,9 +13,24 @@
 
 module AssetID;
 
+## 프록시 요청이 지나간 연결 uid.
+global proxied_conns: set[string] &create_expire=1hr;
+
+## IP별로 기록한 서버 이름 수.
+global server_name_count: table[addr] of count &default=0 &create_expire=suppress_interval;
+
+event http_request(c: connection, method: string, original_URI: string, unescaped_URI: string, version: string)
+	{
+	if ( method == "CONNECT" || /^[a-zA-Z]+:\/\// in original_URI )
+		add proxied_conns[c$uid];
+	}
+
 function server_name(ip: addr, name: string, source: string, uid: string)
 	{
-	if ( ! enable_server_names )
+	if ( ! enable_server_names || uid in proxied_conns )
+		return;
+
+	if ( server_name_count[ip] >= max_server_names )
 		return;
 
 	local n = normalize_name(name);
@@ -22,7 +40,8 @@ function server_name(ip: addr, name: string, source: string, uid: string)
 	if ( n == "" || is_valid_ip(n) || /^\[/ in n )
 		return;
 
-	emit(ip, DNS_NAME, n, source, 50, uid);
+	if ( emit(ip, DNS_NAME, n, source, 50, uid) )
+		++server_name_count[ip];
 	}
 
 ## "\\\\server\\share" -> "server"

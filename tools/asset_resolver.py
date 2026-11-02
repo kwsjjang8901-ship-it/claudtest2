@@ -332,6 +332,9 @@ def summarize(tenancies, shared_macs, domain_names):
     roles = [name for name, rule in ROLE_RULES if rule(ports)]
     if any(m in shared_macs for m in vals.get("mac", {})):
         roles.insert(0, "게이트웨이/라우터(추정)")
+    # 프록시 포트를 열었거나, 서로 다른 서버 이름이 센서 상한(max_server_names)까지 몰린 IP
+    if "3128" in ports or len(vals.get("dns_name", {})) >= 20:
+        roles.insert(0, "프록시/로드밸런서(추정)")
 
     hostname = best(vals.get("hostname"))
     # 자기 신고 이름이 없으면 DNS 이름으로 표시만 한다(식별 키로는 쓰지 않음).

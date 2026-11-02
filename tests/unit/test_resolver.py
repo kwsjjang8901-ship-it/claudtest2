@@ -129,6 +129,13 @@ class TestResolver(unittest.TestCase):
         ])
         self.assertEqual(r["assets"][0]["domain"], "ahnbang.ahnlab.com")
 
+    def test_proxy_role(self):
+        sigs = [sig(0, "10.0.0.9", "dns_name", "site%d.example.com" % i, "tls", 50) for i in range(20)]
+        sigs.append(sig(0, "10.0.0.8", "service", "tcp/3128/http", "service"))
+        roles = {a["ips"][0]["ip"]: a["roles"] for a in resolve(sigs)["assets"]}
+        self.assertIn("프록시/로드밸런서(추정)", roles["10.0.0.9"])
+        self.assertIn("프록시/로드밸런서(추정)", roles["10.0.0.8"])
+
     def test_duplicate_hostnames_reported(self):
         r = resolve([
             sig(0, "10.0.0.5", "mac", "00:50:56:00:00:05", "conn", 40),

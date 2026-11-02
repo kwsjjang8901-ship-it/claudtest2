@@ -85,8 +85,14 @@
 10.10.1.20	dns_name	portal.corp.local	tls	50
 10.10.1.20	service	tcp/80	service	90
 10.10.1.20	dns_name	intranet.corp.local	http	50
-10.10.1.20	service	tcp/80	service	90
+10.20.5.12	hostname	branch-pc12	ldap	85
+10.20.5.12	domain	corp.local	ldap	85
+10.20.5.12	fqdn	branch-pc12.corp.local	ldap	80
+10.20.5.12	machine_account	corp.local\\branch-pc12$	ldap	75
+10.10.1.40	mac	00:50:56:aa:40:40	conn	40
 10.10.1.30	service	tcp/445	service	90
+10.10.1.40	service	tcp/3128/http	service	90
+10.10.1.40	service	tcp/3128/ssl	service	90
 10.10.1.10	mac	00:50:56:aa:10:10	conn	40
 10.10.0.120	mac	02:1a:11:fe:dc:ba	dhcp	90
 10.10.0.120	dhcp_client_id	1:02:1a:11:fe:dc:ba	dhcp	90

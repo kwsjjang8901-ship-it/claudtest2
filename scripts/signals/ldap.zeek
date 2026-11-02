@@ -39,6 +39,12 @@ event LDAP::search_request(c: connection, message_id: int, base_object: string,
 	if ( host != "" && domain != "" )
 		emit(ip, FQDN, split_string1(host, /\./)[0] + "." + domain, "ldap", 80, c$uid);
 
-	if ( user != "" && user[-1] == "$" && domain != "" )
+	if ( domain == "" )
+		return;
+
+	if ( user != "" && user[-1] == "$" )
 		emit(ip, MACHINE_ACCOUNT, domain + "\\" + user, "ldap", 85, c$uid);
+	else if ( host != "" )
+		# DC 찾기는 도메인 가입 PC가 하므로 Host$가 머신 계정이다(User가 없거나 사용자 계정일 때).
+		emit(ip, MACHINE_ACCOUNT, domain + "\\" + split_string1(host, /\./)[0] + "$", "ldap", 75, c$uid);
 	}

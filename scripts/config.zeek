@@ -70,6 +70,10 @@ export {
 		137/udp, 138/udp, 1900/udp, 5353/udp, 5355/udp,
 	};
 
+	## IP 하나에 기록할 서버 이름(SMB/TLS/HTTP) 최대 개수 (suppress_interval 단위).
+	## 프록시·로드밸런서처럼 이름이 몰리는 IP의 로그 폭증을 막는다.
+	option max_server_names = 20;
+
 	## 식별에 쓸 수 없는 일반 이름. hostname 신호로 기록하지 않는다.
 	option ignore_hostnames: set[string] = {
 		"localhost", "localhost.localdomain", "localdomain", "unknown", "(none)",

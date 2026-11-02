@@ -45,9 +45,9 @@
 | domain | kerberos / ntlm / dhcp / nbns | 90 / 60-85 / 70 / 60 | realm / 도메인 필드 / option 15·81 / 그룹 suffix `<1b,1c,1d,1e>` |
 | os_hint | ntlm / smb / ssh / dhcp / http_ua | 80 / 70 / 60 / 60 / 50 | NTLM 버전 구조체 / SMB1 native OS / 배너 / vendor class / UA OS 토큰 |
 | service | service / dhcp | 90 | TCP 연결 성립(SYN-ACK) 또는 응답이 있는 연결에서 분석기가 프로토콜을 확인 |
-| machine_account, hostname, domain, fqdn | ldap | 85 / 80 | CLDAP Netlogon ping(DC 찾기) 필터의 `Host`, `DnsDomain`, `User`. 라우팅 구간에서도 보임 |
+| machine_account, hostname, domain, fqdn | ldap | 85 / 80 (`User` 없을 때 `Host$` 머신 계정 75) | CLDAP Netlogon ping(DC 찾기) 필터의 `Host`, `DnsDomain`, `User`. 라우팅 구간에서도 보임 |
 | dns_name | dns | 40-50 | 일반 DNS A/PTR 응답. 별칭/로드밸런서일 수 있어 **식별 키로 쓰지 않음** |
-| dns_name | smb / tls / http | 50 | 클라이언트가 서버 접속에 쓴 이름(공유 경로, SNI, Host). 서버 표시용 |
+| dns_name | smb / tls / http | 50 | 클라이언트가 서버 접속에 쓴 이름(공유 경로, SNI, Host). 서버 표시용. 프록시 요청(CONNECT, 절대 URL)은 제외, IP당 `max_server_names`(20)개까지 |
 | user_account | kerberos / ntlm / rdp | 70 / 70 / 50 | 로그인 사용자 (참고 정보) |
 
 신뢰도 값은 PoC 초기값입니다. 운영 pcap 실측 후 SRS에 반영해 조정합니다.
@@ -76,6 +76,7 @@
 | `AssetID::suppress_interval` | `1hr` | 중복 억제 기간 (`&redef`) |
 | `AssetID::enable_*` | `T` | 신호 소스별 on/off (`dhcp, arp, conn_mac, kerberos, ntlm, ldap, nbns, llmnr, mdns, dns, server_names, rdp, smb, http_ua, ssh, services`) |
 | `AssetID::service_ports` | 주요 포트 | 포트만으로 서비스로 인정할 목록 |
+| `AssetID::max_server_names` | 20 | IP당 서버 이름(SMB/TLS/HTTP) 기록 상한. 프록시·로드밸런서 로그 폭증 방지 |
 | `AssetID::ignore_hostnames` | localhost 등 | 식별에 쓸 수 없는 일반 이름 |
 | `AssetID::ignore_service_ports` | 137,138,1900,5353,5355/udp | 거의 모든 단말이 응답하는 포트 |
 | `AssetID::nested_analyzers` | ntlm, gssapi, krb… | 다른 프로토콜 안에서 확인되는 분석기 (서비스로 따로 기록하지 않음) |
@@ -117,6 +118,16 @@
 | 서버 이름 | 웹 서버 84대 중 이름 있는 서버 소수 | **SMB 공유 경로·TLS SNI·HTTP Host를 서버 dns_name으로 수집** |
 | NTLM 로컬 계정 | `desktop-xxx` 로컬 로그인 시 자기 호스트명이 domain으로 기록 | **수정:** domain = workstation이면 기록하지 않음 |
 | 도메인 표기 | 같은 PC에 `ahnbang`과 `ahnbang.ahnlab.com` 혼재 | **수정:** 리졸버가 DNS 형태를 대표값으로 선택 |
+
+### 운영 pcap 3차 결과 (2차와 같은 pcap, CLDAP·서버 이름 추가 후)
+
+| 항목 | 2차 → 3차 | 해석 / 조치 |
+|---|---|---|
+| 이름이 있는 자산 | 103 → 135 | 서버 이름(SMB/TLS/HTTP) 효과. 웹 서버 84대 중 이름 있음 50 → 68 |
+| 호스트명 확인 자산 | 10 → 12 | CLDAP으로 5대 확인(그중 2대 신규). 6분 캡처라 DC 찾기 횟수가 적음 |
+| 머신 계정 | 3 → 3 | 운영망 CLDAP 질의에 `User`가 없음 → **수정:** `Host$`를 머신 계정으로(신뢰도 75) |
+| 서버 이름 신호 | 3,907건 중 약 3,780건이 프록시 2대(`nproxy`, tcp/3128) | **수정:** 프록시 요청(CONNECT, 절대 URL) 제외 + IP당 20개 상한, 리졸버에 "프록시/로드밸런서(추정)" 역할 |
+| 로그량 | 원본 대비 0.2% → 0.3% | 프록시 수정 후 다시 0.2% 수준 예상 |
 
 다음 측정 권장: 출근 시간대(로그온·DHCP 갱신 집중)를 포함해 1시간 이상 캡처, DHCP 서버·DC 구간 미러 포함 여부 확인.
 
