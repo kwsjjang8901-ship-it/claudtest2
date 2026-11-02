@@ -52,14 +52,14 @@ rm -f "$OUT"/zeek/*.log
 	fi
 } > "$OUT/zeek/poc_local.zeek"
 
-# Zeek 실행 (로컬 9.x 우선, 없으면 Docker)
+# Zeek 실행 (로컬 8.x 이상 우선, 없으면 Docker). 검증 버전: 8.0.9, 9.0.1
 zeek_major() { zeek --version 2>/dev/null | sed -E 's/.* ([0-9]+)\..*/\1/'; }
 use_docker=$FORCE_DOCKER
 if [ "$use_docker" -eq 0 ]; then
 	if ! command -v zeek >/dev/null 2>&1; then
 		use_docker=1
-	elif [ "$(zeek_major)" -lt 9 ]; then
-		echo "경고: 로컬 zeek $(zeek --version) 는 9.x 미만 -> Docker 사용" >&2
+	elif [ "$(zeek_major)" -lt 8 ]; then
+		echo "경고: 로컬 $(zeek --version) 는 8.x 미만(미검증) -> Docker 사용" >&2
 		use_docker=1
 	fi
 fi
@@ -69,7 +69,7 @@ extra=( $ZEEK_EXTRA )
 echo "[1/2] Zeek 분석: $PCAP"
 start=$(date +%s)
 if [ "$use_docker" -eq 1 ]; then
-	command -v docker >/dev/null || { echo "zeek 9.x 또는 docker가 필요합니다." >&2; exit 1; }
+	command -v docker >/dev/null || { echo "zeek 8.x 이상 또는 docker가 필요합니다." >&2; exit 1; }
 	echo "      (Docker $ZEEK_IMAGE)"
 	docker run --rm --user "$(id -u):$(id -g)" \
 		-v "$ROOT/scripts:/pkg/scripts:ro" \

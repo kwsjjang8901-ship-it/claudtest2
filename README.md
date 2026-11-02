@@ -4,12 +4,15 @@ NSM 원페이저 6장 "자산 식별"의 센서 측 PoC입니다. 미러 트래�
 `asset_signal.log`(JSON)로 남기고, Manager 역할을 대신하는 리졸버가 판정 키 우선순위
 (**머신 계정 > DHCP client-id > MAC > 호스트명 > IP+시간**)로 자산을 묶어 리포트를 만듭니다.
 
-- `scripts/`: 센서(Zeek 9.x) 패키지. nsm_rules에 머지할 대상입니다.
+- `scripts/`: 센서(Zeek 8.x / 9.x) 패키지. nsm_rules에 머지할 대상입니다.
 - `tools/`: PoC 확인용 도구(실행 스크립트, 리졸버, 리포트). 머지 대상이 아닙니다.
 
 ## 빠른 시작
 
-필요한 것: `python3` (3.8+), 그리고 `zeek` 9.x **또는** `docker`(없으면 자동으로 `zeek/zeek:9.0.1` 이미지 사용).
+필요한 것: `python3` (3.8+), 그리고 `zeek` 8.x 이상 **또는** `docker`(없으면 자동으로 `zeek/zeek:9.0.1` 이미지 사용).
+
+검증한 Zeek 버전: **8.0.9, 9.0.1** (btest 12개 모두 통과, 두 버전의 출력이 같음).
+Docker로 8.0을 쓰려면 `ZEEK_IMAGE=zeek/zeek:8.0.9 tools/run_poc.sh ...`처럼 실행합니다.
 
 ```bash
 # 1) 데모 pcap으로 확인
@@ -74,7 +77,8 @@ A-74eaea43f4  IP+시간(낮음)          -                    10.20.5.11       -
 ## 테스트
 
 ```bash
-tests/run_tests.sh           # Zeek btest(12) + 리졸버 unittest(10)
+tests/run_tests.sh                               # Zeek btest(12) + 리졸버 unittest(10)
+ZEEK_IMAGE=zeek/zeek:8.0.9 tests/run_tests.sh    # Zeek 8.0으로 btest
 ```
 
 - `tests/pcaps/demo.pcap`: 합성 데모. `tests/gen_demo_pcap.py`로 다시 만들 수 있습니다(`pip install scapy`).
