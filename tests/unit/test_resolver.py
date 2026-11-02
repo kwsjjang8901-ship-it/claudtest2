@@ -128,6 +128,53 @@ class TestResolver(unittest.TestCase):
         self.assertEqual(managed, {"10.0.0.5": "mac", "10.0.0.6": "hostname", "10.0.0.7": ""})
 
 
+    def test_conn_only_mac_is_low_confidence(self):
+        r = resolve([
+            sig(0, "10.0.0.5", "mac", "00:50:56:00:00:05", "conn", 40),
+            sig(0, "10.0.0.6", "mac", "00:50:56:00:00:06", "arp", 85),
+        ])
+        conf = {a["ips"][0]["ip"]: a["confidence"] for a in r["assets"]}
+        self.assertEqual(conf, {"10.0.0.5": "낮음", "10.0.0.6": "중간"})
+
+    def test_duplicate_hostnames_reported(self):
+        r = resolve([
+            sig(0, "10.0.0.5", "mac", "00:50:56:00:00:05", "conn", 40),
+            sig(0, "10.0.0.5", "hostname", "desktop-1", "mdns", 70),
+            sig(0, "10.0.0.6", "mac", "00:50:56:00:00:06", "conn", 40),
+            sig(0, "10.0.0.6", "hostname", "desktop-1", "mdns", 70),
+        ])
+        self.assertEqual(len(r["assets"]), 2)
+        self.assertEqual(list(r["dup_hostnames"]), ["desktop-1"])
+
+
+class TestAgents(unittest.TestCase):
+    def load(self, text, encoding="utf-8"):
+        with tempfile.NamedTemporaryFile("wb", suffix=".csv", delete=False) as f:
+            f.write(text.encode(encoding))
+        try:
+            return ar.load_agents(f.name)
+        finally:
+            os.unlink(f.name)
+
+    def test_korean_header_cp949_tab(self):
+        a = self.load("호스트명\tIP 주소\tMAC 주소\nPC-01\t10.0.0.5\tAABB.CCDD.EEFF\n", "cp949")
+        self.assertEqual(a["hostname"], {"pc-01"})
+        self.assertEqual(a["ip"], {"10.0.0.5"})
+        self.assertEqual(a["mac"], {"aa:bb:cc:dd:ee:ff"})
+
+    def test_multi_values_and_mac_formats(self):
+        a = self.load("ip,mac,comment\n\"10.0.0.5, 10.0.0.6\",AABBCCDDEE01;aa-bb-cc-dd-ee-02,메모\n")
+        self.assertEqual(a["ip"], {"10.0.0.5", "10.0.0.6"})
+        self.assertEqual(a["mac"], {"aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02"})
+        self.assertEqual(a["hostname"], set())
+
+    def test_match_diagnostics(self):
+        r = resolve([sig(0, "10.0.0.5", "mac", "aa:aa:aa:aa:aa:01")])
+        diag = ar.match_agents(r["assets"], {"ip": {"10.9.9.9"}, "mac": {"aa:aa:aa:aa:aa:01"}, "hostname": set()})
+        self.assertEqual(diag["mac"]["matched"], 1)
+        self.assertEqual(diag["ip"], {"loaded": 1, "matched": 0, "sample": ["10.9.9.9"]})
+
+
 class TestCli(unittest.TestCase):
     def test_outputs_created(self):
         with tempfile.TemporaryDirectory() as d:

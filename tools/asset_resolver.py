@@ -91,40 +91,66 @@ def load_signals(path):
     return sigs
 
 
+AGENT_HEADERS = (
+    ("mac", ("mac", "맥")),
+    ("ip", ("ip", "아이피", "address", "addr", "주소")),
+    ("hostname", ("host", "computer", "name", "호스트", "컴퓨터", "장비명", "이름", "pc")),
+)
+
+
+def read_text(path):
+    """UTF-8(BOM 포함) 우선, 실패하면 CP949(한글 Excel 기본 저장 형식)로 읽는다."""
+    with open(path, "rb") as f:
+        raw = f.read()
+    for enc in ("utf-8-sig", "cp949"):
+        try:
+            return raw.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    return raw.decode("utf-8", "replace")
+
+
 def load_agents(path):
-    """에이전트 목록(CSV). 헤더가 있으면 ip/mac/host 계열 컬럼을, 없으면 값 모양으로 판별한다."""
+    """에이전트 목록(CSV/TSV). 헤더가 있으면 ip/mac/host 계열 컬럼을, 없으면 값 모양으로 판별한다.
+    한 칸에 값이 여러 개(쉼표/세미콜론/공백 구분)여도 된다."""
     agents = {"ip": set(), "mac": set(), "hostname": set()}
-    with open(path, encoding="utf-8-sig") as f:
-        rows = [r for r in csv.reader(f) if any(c.strip() for c in r)]
+    text = read_text(path)
+    try:
+        dialect = csv.Sniffer().sniff(text[:4096], delimiters=",;\t|")
+    except csv.Error:
+        dialect = csv.excel
+    rows = [r for r in csv.reader(text.splitlines(), dialect) if any(c.strip() for c in r)]
     if not rows:
         return agents
-    header = [c.strip().lower() for c in rows[0]]
     cols = {}
-    for i, h in enumerate(header):
-        if "mac" in h:
-            cols[i] = "mac"
-        elif h in ("ip", "ipaddr", "ip_addr", "address", "addr") or h.startswith("ip"):
-            cols[i] = "ip"
-        elif "host" in h or "computer" in h or "name" in h:
-            cols[i] = "hostname"
+    for i, h in enumerate(c.strip().lower() for c in rows[0]):
+        for kind, words in AGENT_HEADERS:
+            if any(w in h for w in words):
+                cols[i] = kind
+                break
     body = rows[1:] if cols else rows
     for r in body:
         for i, cell in enumerate(r):
-            v = cell.strip()
-            if not v:
+            if cols and i not in cols:
                 continue
-            kind = cols.get(i) if cols else guess_kind(v)
-            if kind == "mac":
-                agents["mac"].add(norm_mac(v))
-            elif kind == "ip":
-                agents["ip"].add(v)
-            elif kind == "hostname":
-                agents["hostname"].add(host_key(v))
+            for v in re.split(r"[;,\s]+", cell.strip()) if (not cols or cols[i] != "hostname") else [cell.strip()]:
+                if not v:
+                    continue
+                kind = cols[i] if cols else guess_kind(v)
+                if kind == "mac":
+                    m = norm_mac(v)
+                    if m:
+                        agents["mac"].add(m)
+                elif kind == "ip":
+                    agents["ip"].add(v.split("/")[0])
+                elif kind == "hostname":
+                    agents["hostname"].add(host_key(v))
+    agents["hostname"].discard("")
     return agents
 
 
 def guess_kind(v):
-    if re.fullmatch(r"([0-9a-fA-F]{2}[:-]){5}[0-9a-fA-F]{2}", v):
+    if re.fullmatch(r"([0-9a-fA-F]{2}[:-]){5}[0-9a-fA-F]{2}|([0-9a-fA-F]{4}\.){2}[0-9a-fA-F]{4}", v):
         return "mac"
     if re.fullmatch(r"\d+\.\d+\.\d+\.\d+", v) or (":" in v and re.fullmatch(r"[0-9a-fA-F:]+", v)):
         return "ip"
@@ -134,7 +160,11 @@ def guess_kind(v):
 # ---------------------------------------------------------------- 정규화
 
 def norm_mac(v):
-    return v.strip().lower().replace("-", ":")
+    """aa-bb-.., aabb.ccdd.eeff, AABBCCDDEEFF 등을 aa:bb:cc:dd:ee:ff 로. 형식이 아니면 빈 문자열."""
+    h = re.sub(r"[^0-9a-f]", "", v.strip().lower())
+    if len(h) != 12:
+        return ""
+    return ":".join(h[i:i + 2] for i in range(0, 12, 2))
 
 
 def host_key(v):
@@ -309,7 +339,12 @@ def resolve(sigs, shared_threshold=3, max_idle=86400):
 
     assets = [summarize(ts, shared_macs, domain_names) for ts in groups.values()]
     assets.sort(key=lambda a: (KEY_PRIORITY.index(a["id_type"]), a["hostname"] or "~", a["ips"][0]["ip"]))
+    by_name = defaultdict(list)
+    for a in assets:
+        if a["hostname"]:
+            by_name[host_key(a["hostname"])].append(a["asset_id"])
     return {
+        "dup_hostnames": {k: v for k, v in sorted(by_name.items()) if len(v) > 1},
         "assets": assets,
         "shared_macs": shared_macs,
         "reused_ips": reused,
@@ -327,6 +362,7 @@ def best(counter_conf):
 def summarize(tenancies, shared_macs, domain_names):
     vals = defaultdict(dict)  # signal -> {value: (max_conf, count)}
     sources = Counter()
+    l2_mac = False  # ARP/DHCP 등 L2에서 직접 확인한 MAC이 있는지
     os_cands = {}
     ips = []
     count = 0
@@ -339,6 +375,8 @@ def summarize(tenancies, shared_macs, domain_names):
             if s.signal == "mac" and s.source == "conn" and v in shared_macs:
                 vals["via_gateway_mac"][v] = (0, 1)
                 continue
+            if s.signal == "mac" and s.source != "conn":
+                l2_mac = True
             if s.signal == "hostname" and is_group_name(s, domain_names):
                 continue
             if s.signal == "machine_account":
@@ -372,13 +410,17 @@ def summarize(tenancies, shared_macs, domain_names):
             break
     if id_type == "hostname":
         id_value = host_key(id_value)
+    confidence = KEY_CONFIDENCE[id_type]
+    if id_type == "mac" and not l2_mac:
+        # conn L2 주소로만 본 MAC: 공유 MAC 임계값 미만의 라우터 MAC일 가능성이 남는다.
+        confidence = "낮음"
 
     os_list = sorted(os_cands, key=lambda k: os_cands[k], reverse=True)
     return {
         "asset_id": "A-" + hashlib.sha1(("%s|%s" % (id_type, id_value)).encode()).hexdigest()[:10],
         "id_type": id_type,
         "id_value": id_value,
-        "confidence": KEY_CONFIDENCE[id_type],
+        "confidence": confidence,
         "hostname": hostname,
         "display_name": display_name,
         "fqdn": best(vals.get("fqdn")),
@@ -408,6 +450,12 @@ def summarize(tenancies, shared_macs, domain_names):
 
 
 def match_agents(assets, agents):
+    """자산마다 관리 여부를 표시하고, Agent 목록 진단 정보를 반환한다."""
+    seen = {"ip": set(), "mac": set(), "hostname": set()}
+    for a in assets:
+        seen["mac"].update(a["macs"])
+        seen["hostname"].update(host_key(h) for h in a["hostnames"] + a["dns_names"] + a["machine_accounts"])
+        seen["ip"].update(i["ip"] for i in a["ips"])
     for a in assets:
         hit = ""
         if set(a["macs"]) & agents["mac"]:
@@ -420,6 +468,8 @@ def match_agents(assets, agents):
                 hit = "ip"
         a["managed"] = bool(hit)
         a["managed_by"] = hit
+    return {k: {"loaded": len(agents[k]), "matched": len(agents[k] & seen[k]),
+                "sample": sorted(agents[k])[:3]} for k in ("ip", "mac", "hostname")}
 
 
 # ---------------------------------------------------------------- 출력
@@ -479,7 +529,8 @@ def stats(result, sigs, zeek_dir, signal_path):
     if zeek_dir and os.path.isdir(zeek_dir):
         total = sum(os.path.getsize(os.path.join(zeek_dir, f)) for f in os.listdir(zeek_dir)
                     if f.endswith(".log") and f != os.path.basename(signal_path))
-        vol = (os.path.getsize(signal_path), total)
+        if total:
+            vol = (os.path.getsize(signal_path), total)
     return {
         "signal_count": len(sigs),
         "time_range": (sigs[0].ts, sigs[-1].ts) if sigs else (0, 0),
@@ -516,6 +567,15 @@ def write_report(path, result, st, tz, src):
     if st["agents_given"]:
         p("  - 관리(Agent 설치)     : %d" % st["managed"][0])
         p("  - 미관리               : %d" % st["managed"][1])
+        diag = result.get("agent_diag")
+        if diag:
+            p("  - Agent 목록 대조      : " + ", ".join(
+                "%s %d건 중 %d건 관측" % (k, d["loaded"], d["matched"]) for k, d in diag.items()))
+            if not any(d["loaded"] for d in diag.values()):
+                p("    ! Agent 목록에서 값을 하나도 읽지 못함: 헤더(ip/mac/hostname)와 구분자를 확인")
+            elif not st["managed"][0]:
+                p("    ! 매칭 0건: 목록 값 예시 " + "; ".join(
+                    "%s=%s" % (k, ",".join(d["sample"])) for k, d in diag.items() if d["sample"]))
     p("")
     p("[키 커버리지]  (자산 중 해당 정보가 확인된 비율)")
     for label, c, pct in st["coverage"]:
@@ -535,6 +595,11 @@ def write_report(path, result, st, tz, src):
         p("[IP 재사용 (점유 단말 변경)]")
         for ip, splits in result["reused_ips"].items():
             p("  %s  변경 시각: %s" % (ip, ", ".join(fmt_ts(t, tz) for t in splits)))
+        p("")
+    if result["dup_hostnames"]:
+        p("[같은 호스트명, 다른 자산 (VM 복제/이미지 배포 또는 이름 재사용 의심)]")
+        for name, ids in list(result["dup_hostnames"].items())[:20]:
+            p("  %-20s 자산 %d개: %s" % (name, len(ids), ", ".join(ids[:5]) + (" ..." if len(ids) > 5 else "")))
         p("")
     if result["conflicts"]:
         p("[결합 보류 (같은 키를 공유하지만 강한 키 값이 달라 합치지 않음)]")
@@ -611,6 +676,8 @@ def write_html(path, result, st, tz, src, sigs):
         },
         "shared_macs": result["shared_macs"],
         "reused_ips": {ip: [fmt_ts(t, tz) for t in v] for ip, v in result["reused_ips"].items()},
+        "dup_hostnames": result["dup_hostnames"],
+        "agent_diag": result.get("agent_diag"),
         "assets": [dict(a, ips_text=ip_text(a, tz), managed_text=managed_text(a), id_label=KEY_LABEL[a["id_type"]],
                         first_seen=fmt_ts(a["first_seen"], tz), last_seen=fmt_ts(a["last_seen"], tz),
                         ips=[dict(i, first=fmt_ts(i["first"], tz), last=fmt_ts(i["last"], tz)) for i in a["ips"]])
@@ -641,8 +708,9 @@ def main(argv=None):
     tz = dt.timezone(dt.timedelta(hours=args.tz))
     sigs = load_signals(args.signal_log)
     result = resolve(sigs, args.shared_mac_threshold, args.max_idle * 3600)
+    result["agent_diag"] = None
     if args.agents:
-        match_agents(result["assets"], load_agents(args.agents))
+        result["agent_diag"] = match_agents(result["assets"], load_agents(args.agents))
 
     os.makedirs(args.out_dir, exist_ok=True)
     zeek_dir = args.zeek_dir or os.path.dirname(os.path.abspath(args.signal_log))

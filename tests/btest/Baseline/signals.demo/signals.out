@@ -28,7 +28,7 @@
 10.10.0.102	domain	corp.local	dhcp	70
 10.10.0.102	mac	a4:83:e7:44:55:66	arp	85
 10.10.0.102	mac	a4:83:e7:44:55:66	conn	40
-10.10.0.102	hostname	macbook-dev	mdns	60
+10.10.0.102	hostname	macbook-dev	mdns	70
 10.10.0.150	mac	3c:52:82:aa:bb:cc	conn	40
 10.10.0.150	hostname	win10-dev02	llmnr	70
 10.10.0.150	domain	corp.local	kerberos	90

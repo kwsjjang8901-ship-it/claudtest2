@@ -11,7 +11,7 @@ NSM 원페이저 6장 "자산 식별"의 센서 측 PoC입니다. 미러 트래�
 
 필요한 것: `python3` (3.8+), 그리고 `zeek` 8.x 이상 **또는** `docker`(없으면 자동으로 `zeek/zeek:9.0.1` 이미지 사용).
 
-검증한 Zeek 버전: **8.0.9, 9.0.1** (btest 12개 모두 통과, 두 버전의 출력이 같음).
+검증한 Zeek 버전: **8.0.9, 9.0.1** (btest 모두 통과, 두 버전의 출력이 같음).
 Docker로 8.0을 쓰려면 `ZEEK_IMAGE=zeek/zeek:8.0.9 tools/run_poc.sh ...`처럼 실행합니다.
 
 ```bash
@@ -25,7 +25,7 @@ tools/run_poc.sh -n 10.0.0.0/8,172.16.0.0/12 -a agents.csv /data/capture.pcap
 | 옵션 | 설명 |
 |---|---|
 | `-n CIDRS` | 자산 대역(쉼표 구분). 생략하면 Zeek 사설 대역(RFC1918 등). **내부망에 공인 IP를 쓰면 반드시 지정** |
-| `-a CSV` | MDS Agent 목록. 헤더(`ip`, `mac`, `hostname` 계열)가 있으면 컬럼으로, 없으면 값 모양(IP/MAC/이름)으로 판별 |
+| `-a CSV` | MDS Agent 목록. 헤더(`ip`/`mac`/`hostname`, `IP 주소`/`MAC 주소`/`호스트명` 등)가 있으면 컬럼으로, 없으면 값 모양으로 판별. UTF-8/CP949, 쉼표/탭/세미콜론 구분, 한 칸에 여러 값 가능. 리포트에 로드·매칭 건수 표시 |
 | `-o DIR` | 출력 디렉터리 (기본 `out/<pcap 이름>/`) |
 | `-d` | 로컬 zeek가 있어도 Docker 사용 |
 | `-z ARGS` | zeek 추가 인자. 예) `-z "AssetID::suppress_interval=30min"` |
@@ -77,7 +77,7 @@ A-74eaea43f4  IP+시간(낮음)          -                    10.20.5.11       -
 ## 테스트
 
 ```bash
-tests/run_tests.sh                               # Zeek btest(12) + 리졸버 unittest(10)
+tests/run_tests.sh                               # Zeek btest(13) + 리졸버 unittest(15)
 ZEEK_IMAGE=zeek/zeek:8.0.9 tests/run_tests.sh    # Zeek 8.0으로 btest
 ```
 

@@ -68,6 +68,11 @@ export {
 		137/udp, 138/udp, 1900/udp, 5353/udp, 5355/udp,
 	};
 
+	## 식별에 쓸 수 없는 일반 이름. hostname 신호로 기록하지 않는다.
+	option ignore_hostnames: set[string] = {
+		"localhost", "localhost.localdomain", "localdomain", "unknown", "(none)",
+	};
+
 	## 응답측 포트가 이 값 이상이면 임시 포트로 보고 서비스로 기록하지 않는다.
 	const ephemeral_port_min = 49152 &redef;
 }

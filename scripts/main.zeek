@@ -122,6 +122,9 @@ function emit(ip: addr, signal: string, value: string, source: string,
 	if ( value == "" || ! is_asset_addr(ip) )
 		return F;
 
+	if ( signal == HOSTNAME && value in ignore_hostnames )
+		return F;
+
 	if ( [ip, signal, value, source] in recent )
 		return F;
 

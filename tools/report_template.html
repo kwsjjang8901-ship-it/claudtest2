@@ -133,6 +133,14 @@ for (const [mac, ips] of Object.entries(D.shared_macs))
   notes.push(`<li><b class="mono">${esc(mac)}</b> 가 conn에서 IP ${ips.length}개에 보임 → 게이트웨이/라우터 MAC으로 보고 식별 키에서 제외 <span class="muted mono">(${esc(ips.slice(0, 6).join(", "))}${ips.length > 6 ? " …" : ""})</span></li>`);
 for (const [ip, ts] of Object.entries(D.reused_ips))
   notes.push(`<li><b class="mono">${esc(ip)}</b> 의 점유 단말이 바뀜 (${esc(ts.join(", "))}) → 자산을 나눔</li>`);
+for (const [name, ids] of Object.entries(D.dup_hostnames || {}))
+  notes.push(`<li>호스트명 <b class="mono">${esc(name)}</b> 이 자산 ${ids.length}개에 있음 → MAC이 달라 합치지 않음 (VM 복제/이미지 배포 의심)</li>`);
+if (D.agent_diag) {
+  const d = D.agent_diag;
+  const txt = Object.entries(d).map(([k, v]) => `${k} ${v.loaded}건 중 ${v.matched}건 관측`).join(", ");
+  const none = !Object.values(d).some((v) => v.loaded);
+  notes.push(`<li>Agent 목록 대조: ${esc(txt)}${none ? " — <b>목록에서 값을 읽지 못함(헤더/구분자 확인)</b>" : ""}</li>`);
+}
 const ipOnly = D.assets.filter((a) => a.id_type === "ip").length;
 if (ipOnly) notes.push(`<li>식별 키 없이 IP+시간으로만 남은 자산 ${ipOnly}개 (라우팅 구간 또는 신호 부족)</li>`);
 $("notes").innerHTML = notes.length ? `<ul class="plain">${notes.join("")}</ul>` : `<span class="muted">없음</span>`;

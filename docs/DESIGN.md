@@ -41,7 +41,7 @@
 | mac | dhcp / arp / conn | 90 / 85 / 40 | chaddr / ARP 송신자 / 연결의 L2 주소(라우팅 구간이면 게이트웨이 MAC) |
 | hostname | kerberos / ntlm / dhcp / rdp | 90 / 85 / 85 / 80 | 머신 계정 / workstation, 서버 CHALLENGE의 NetBIOS 이름 / option 12, 81 / client core data |
 | hostname | nbns `<20>` / `<00>` | 75 / 50 | 이름 등록·갱신 요청. `<00>`은 워크그룹 이름과 섞여 낮음 |
-| hostname | llmnr / mdns | 70 / 60-70 | 자기 이름에 대한 응답, mDNS ANY 프로브 |
+| hostname | llmnr / mdns | 70 / 70 | 자기 이름에 대한 응답 (`<host>.local` 형태만). mDNS 프로브와 서비스 인스턴스 이름은 기록하지 않음 |
 | domain | kerberos / ntlm / dhcp / nbns | 90 / 60-85 / 70 / 60 | realm / 도메인 필드 / option 15·81 / 그룹 suffix `<1b,1c,1d,1e>` |
 | os_hint | ntlm / smb / ssh / dhcp / http_ua | 80 / 70 / 60 / 60 / 50 | NTLM 버전 구조체 / SMB1 native OS / 배너 / vendor class / UA OS 토큰 |
 | service | service / dhcp | 90 | TCP 연결 성립(SYN-ACK) 또는 응답이 있는 연결에서 분석기가 프로토콜을 확인 |
@@ -74,6 +74,7 @@
 | `AssetID::suppress_interval` | `1hr` | 중복 억제 기간 (`&redef`) |
 | `AssetID::enable_*` | `T` | 신호 소스별 on/off (`dhcp, arp, conn_mac, kerberos, ntlm, nbns, llmnr, mdns, dns, rdp, smb, http_ua, ssh, services`) |
 | `AssetID::service_ports` | 주요 포트 | 포트만으로 서비스로 인정할 목록 |
+| `AssetID::ignore_hostnames` | localhost 등 | 식별에 쓸 수 없는 일반 이름 |
 | `AssetID::ignore_service_ports` | 137,138,1900,5353,5355/udp | 거의 모든 단말이 응답하는 포트 |
 | `AssetID::nested_analyzers` | ntlm, gssapi, krb… | 다른 프로토콜 안에서 확인되는 분석기 (서비스로 따로 기록하지 않음) |
 
@@ -89,6 +90,21 @@
 | IPv6 | DHCPv6, NDP는 아직 수집하지 않음 (mDNS/LLMNR/일반 신호는 IPv6도 기록) | IPv6 자산 비율 |
 | SMB2 OS | SMB2/3 협상에는 OS 문자열이 없음. NTLM 버전으로 대체 | OS 커버리지 |
 | 성능 | `new_connection`/`connection_state_remove`에서 테이블 조회 1-2회. 실측 필요 | `zeek` CPU/메모리, 처리 시간 |
+
+### 운영 pcap 1차 결과 (200초, 2026-11-02)
+
+| 항목 | 결과 | 해석 / 조치 |
+|---|---|---|
+| 자산 / 신호 | 3,177개 / 5,449건 | 대부분 내부 사설 대역 |
+| 로그량 | asset_signal 870.7KB / Zeek 전체 423.5MB (**0.2%**) | 선별 전송 부담 작음 |
+| DHCP, ARP 신호 | 0건 | 미러 구간이 라우팅 구간이거나 DHCP/ARP가 미러에 없음 → MAC/client-id 키 확보 불가 |
+| 공유 MAC | 25개 (최대 IP 1,204개) | 게이트웨이 MAC. 식별 키에서 정상 제외 |
+| 대표 키 | IP+시간 2,642 (83%), MAC(conn) 532, 호스트명 2, 머신 계정 1 | 200초 동안 Kerberos AS-REQ/NTLM이 거의 없음 |
+| mDNS 호스트명 오염 | VMware 복제 VM 수십 대의 `has01(N)` 충돌 프로브가 IP당 70여 개 기록됨 | **수정:** 프로브/서비스 인스턴스 이름 제외, 확정 응답만 기록 (btest `mdns-conflict`) |
+| conn 출처 MAC만 있는 자산 | 532개를 "중간"으로 표시 | **수정:** L2(ARP/DHCP) 확인이 없으면 "낮음" |
+| Agent 매칭 | 0 / 3,177 | 목록 형식 문제 추정. **수정:** CP949/탭/한글 헤더/MAC 표기 다양화 지원, 리포트에 로드·매칭 건수 진단 출력 |
+
+다음 측정 권장: 출근 시간대(로그온·DHCP 갱신 집중)를 포함해 1시간 이상 캡처, DHCP 서버·DC 구간 미러 포함 여부 확인.
 
 운영 테스트 후 기록할 지표: 자산 수, 대표 키 분포, 키 커버리지, 공유 MAC/IP 재사용/결합 보류 건수,
 `asset_signal.log` 크기(원본 로그 대비 %), 수동 표본 검증(예: 30대) 정확도.

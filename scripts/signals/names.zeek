@@ -2,7 +2,8 @@
 ##!
 ##! - NBNS 등록/갱신 요청: 송신자가 자기 이름을 등록 -> hostname / domain(워크그룹)
 ##! - NBNS/LLMNR/mDNS 응답: 응답자가 자기 이름에 대한 A/AAAA 응답 -> hostname
-##! - mDNS PTR(역방향) 응답, mDNS ANY 프로브 -> hostname
+##! - mDNS PTR(역방향) 응답 -> hostname
+##!   (mDNS 프로브는 기록하지 않음: 이름 충돌 중인 후보 이름까지 나와서 오염된다)
 ##! - 일반 DNS PTR/A 응답 -> dns_name (별칭일 수 있어 식별 키로 쓰지 않음)
 
 @load base/protocols/dns
@@ -20,12 +21,13 @@ function on_port(c: connection, p: port): bool
 	return c$id$orig_p == p || c$id$resp_p == p;
 	}
 
-## mDNS 이름(.local)에서 단축 호스트명.
+## mDNS 호스트 이름(<host>.local)에서 단축 호스트명.
+## 서비스 인스턴스 이름("has01(3)._smb._tcp.local" 등)은 호스트명이 아니므로 제외한다.
 function mdns_host(name: string): string
 	{
 	local n = normalize_name(name);
 
-	if ( /\.local$/ !in n || /^_/ in n )
+	if ( /^[^._][^.]*\.local$/ !in n )
 		return "";
 
 	return split_string1(n, /\./)[0];
@@ -70,10 +72,6 @@ event dns_request(c: connection, msg: dns_msg, query: string, qtype: count, qcla
 			nbns_emit(c$id$orig_h, original_query, c$uid);
 		return;
 		}
-
-	# mDNS 프로브: 자기 이름을 ANY(255)로 질의해 충돌을 확인한다.
-	if ( enable_mdns && on_port(c, MDNS_PORT) && qtype == 255 )
-		emit(c$id$orig_h, HOSTNAME, mdns_host(query), "mdns", 60, c$uid);
 	}
 
 function name_reply(c: connection, ans: dns_answer, a: addr)
