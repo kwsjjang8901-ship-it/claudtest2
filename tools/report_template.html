@@ -53,8 +53,6 @@ td.mono, .mono { font-family: var(--mono); font-size: 12px; }
 .b-높음 { background: color-mix(in srgb, var(--good) 18%, transparent); color: var(--good); }
 .b-중간 { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
 .b-낮음 { background: color-mix(in srgb, var(--bad) 15%, transparent); color: var(--bad); }
-.b-미관리 { background: color-mix(in srgb, var(--bad) 15%, transparent); color: var(--bad); }
-.b-관리 { background: color-mix(in srgb, var(--good) 18%, transparent); color: var(--good); }
 tr.detail td { background: var(--bg); }
 .detail-grid { display: grid; grid-template-columns: 140px 1fr; gap: 4px 12px; margin-bottom: 10px; }
 .detail-grid div:nth-child(odd) { color: var(--muted); }
@@ -85,7 +83,6 @@ footer { color: var(--muted); font-size: 12px; padding: 0 24px 24px; }
     <div class="toolbar">
       <input type="search" id="q" placeholder="호스트명, IP, MAC, OS, 역할, 계정 검색">
       <select id="f-id"><option value="">식별 키: 전체</option></select>
-      <select id="f-managed"><option value="">관리 여부: 전체</option><option value="미관리">미관리</option><option value="관리">관리</option></select>
       <span class="muted" id="count"></span>
     </div>
     <div class="table-wrap">
@@ -93,7 +90,7 @@ footer { color: var(--muted); font-size: 12px; padding: 0 24px 24px; }
         <thead><tr>
           <th data-k="display_name">호스트명</th><th data-k="id_label">식별 키</th><th data-k="ips_text">IP</th>
           <th data-k="mac">MAC</th><th data-k="os">OS</th><th data-k="roles_text">역할</th>
-          <th data-k="domain">도메인</th><th data-k="managed_text">관리</th><th data-k="last_seen">마지막 관측</th>
+          <th data-k="domain">도메인</th><th data-k="last_seen">마지막 관측</th>
         </tr></thead>
         <tbody id="rows"></tbody>
       </table>
@@ -115,7 +112,6 @@ const cards = [
   ["공유 MAC", Object.keys(D.shared_macs).length],
   ["IP 재사용", Object.keys(D.reused_ips).length],
 ];
-if (st.agents_given) cards.splice(1, 0, ["미관리 자산", st.managed[1]], ["관리 자산", st.managed[0]]);
 if (st.volume) cards.push(["로그량(원본 대비)", st.volume[2] + "%"]);
 $("cards").innerHTML = cards.map(([k, v]) => `<div class="card"><div class="v">${esc(v)}</div><div class="k">${esc(k)}</div></div>`).join("");
 
@@ -135,19 +131,12 @@ for (const [ip, ts] of Object.entries(D.reused_ips))
   notes.push(`<li><b class="mono">${esc(ip)}</b> 의 점유 단말이 바뀜 (${esc(ts.join(", "))}) → 자산을 나눔</li>`);
 for (const [name, ids] of Object.entries(D.dup_hostnames || {}))
   notes.push(`<li>호스트명 <b class="mono">${esc(name)}</b> 이 자산 ${ids.length}개에 있음 → MAC이 달라 합치지 않음 (VM 복제/이미지 배포 의심)</li>`);
-if (D.agent_diag) {
-  const d = D.agent_diag;
-  const txt = Object.entries(d).map(([k, v]) => `${k} ${v.loaded}건 중 ${v.matched}건 관측`).join(", ");
-  const none = !Object.values(d).some((v) => v.loaded);
-  notes.push(`<li>Agent 목록 대조: ${esc(txt)}${none ? " — <b>목록에서 값을 읽지 못함(헤더/구분자 확인)</b>" : ""}</li>`);
-}
 const ipOnly = D.assets.filter((a) => a.id_type === "ip").length;
 if (ipOnly) notes.push(`<li>식별 키 없이 IP+시간으로만 남은 자산 ${ipOnly}개 (라우팅 구간 또는 신호 부족)</li>`);
 $("notes").innerHTML = notes.length ? `<ul class="plain">${notes.join("")}</ul>` : `<span class="muted">없음</span>`;
 
 const idSel = $("f-id");
 [...new Set(D.assets.map((a) => a.id_label))].forEach((l) => idSel.insertAdjacentHTML("beforeend", `<option>${esc(l)}</option>`));
-if (!st.agents_given) $("f-managed").style.display = "none";
 
 D.assets.forEach((a) => {
   a.mac = a.macs[0] || "";
@@ -163,7 +152,7 @@ document.querySelectorAll("th[data-k]").forEach((th) => th.addEventListener("cli
   sortKey = k;
   render();
 }));
-["q", "f-id", "f-managed"].forEach((id) => $(id).addEventListener("input", render));
+["q", "f-id"].forEach((id) => $(id).addEventListener("input", render));
 
 function detail(a) {
   const row = (k, v) => v && v.length ? `<div>${esc(k)}</div><div class="mono">${Array.isArray(v) ? v.map(esc).join("<br>") : esc(v)}</div>` : "";
@@ -184,20 +173,18 @@ function detail(a) {
 
 function render() {
   const q = $("q").value.trim().toLowerCase();
-  const fid = $("f-id").value, fm = $("f-managed").value;
-  let list = D.assets.filter((a) => (!q || a.search.includes(q)) && (!fid || a.id_label === fid) &&
-    (!fm || (fm === "미관리" ? a.managed === false : a.managed === true)));
+  const fid = $("f-id").value;
+  let list = D.assets.filter((a) => (!q || a.search.includes(q)) && (!fid || a.id_label === fid));
   if (sortKey) list = list.slice().sort((x, y) => String(x[sortKey] || "~").localeCompare(String(y[sortKey] || "~"), "ko", {numeric: true}) * sortDir);
   $("count").textContent = `${list.length} / ${D.assets.length}개`;
   $("rows").innerHTML = list.map((a) => {
-    const m = a.managed === null ? "-" : `<span class="badge b-${a.managed ? "관리" : "미관리"}">${esc(a.managed_text)}</span>`;
     const tr = `<tr class="asset" data-id="${esc(a.asset_id)}">
       <td><b>${esc(a.display_name || "-")}</b></td>
       <td><span class="badge b-${esc(a.confidence)}">${esc(a.confidence)}</span> ${esc(a.id_label)}</td>
       <td class="mono">${a.ips.map((i) => esc(i.ip)).join("<br>")}</td>
       <td class="mono">${esc(a.mac || "-")}</td><td>${esc(a.os || "-")}</td><td>${esc(a.roles_text || "-")}</td>
-      <td>${esc(a.domain || "-")}</td><td>${m}</td><td class="mono">${esc(a.last_seen)}</td></tr>`;
-    return tr + (openId === a.asset_id ? `<tr class="detail"><td colspan="9">${detail(a)}</td></tr>` : "");
+      <td>${esc(a.domain || "-")}</td><td class="mono">${esc(a.last_seen)}</td></tr>`;
+    return tr + (openId === a.asset_id ? `<tr class="detail"><td colspan="8">${detail(a)}</td></tr>` : "");
   }).join("");
   document.querySelectorAll("tr.asset").forEach((tr) => tr.addEventListener("click", () => {
     openId = openId === tr.dataset.id ? null : tr.dataset.id;

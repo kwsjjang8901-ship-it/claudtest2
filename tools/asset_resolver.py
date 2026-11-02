@@ -91,82 +91,6 @@ def load_signals(path):
     return sigs
 
 
-AGENT_HEADERS = (
-    ("mac", ("mac", "맥")),
-    ("ip", ("ip", "아이피", "address", "addr", "주소")),
-    ("hostname", ("host", "computer", "name", "호스트", "컴퓨터", "장비명", "이름", "pc")),
-)
-
-
-def read_text(path):
-    """UTF-8(BOM 포함) 우선, 실패하면 CP949(한글 Excel 기본 저장 형식)로 읽는다."""
-    with open(path, "rb") as f:
-        raw = f.read()
-    for enc in ("utf-8-sig", "cp949"):
-        try:
-            return raw.decode(enc)
-        except UnicodeDecodeError:
-            continue
-    return raw.decode("utf-8", "replace")
-
-
-def load_agents(path):
-    """에이전트 목록(CSV/TSV). 헤더가 있으면 ip/mac/host 계열 컬럼을, 없으면 값 모양으로 판별한다.
-    한 칸에 값이 여러 개(쉼표/세미콜론/공백 구분)여도 된다."""
-    agents = {"ip": set(), "mac": set(), "hostname": set()}
-    text = read_text(path)
-    try:
-        dialect = csv.Sniffer().sniff(text[:4096], delimiters=",;\t|")
-    except csv.Error:
-        dialect = csv.excel
-    rows = [r for r in csv.reader(text.splitlines(), dialect) if any(c.strip() for c in r)]
-    if not rows:
-        return agents
-    cols = {}
-    for i, h in enumerate(c.strip().lower() for c in rows[0]):
-        for kind, words in AGENT_HEADERS:
-            if any(w in h for w in words):
-                cols[i] = kind
-                break
-    body = rows[1:] if cols else rows
-    for r in body:
-        for i, cell in enumerate(r):
-            if cols and i not in cols:
-                continue
-            for v in re.split(r"[;,\s]+", cell.strip()) if (not cols or cols[i] != "hostname") else [cell.strip()]:
-                if not v:
-                    continue
-                kind = cols[i] if cols else guess_kind(v)
-                if kind == "mac":
-                    m = norm_mac(v)
-                    if m:
-                        agents["mac"].add(m)
-                elif kind == "ip":
-                    agents["ip"].add(v.split("/")[0])
-                elif kind == "hostname":
-                    agents["hostname"].add(host_key(v))
-    agents["hostname"].discard("")
-    return agents
-
-
-def guess_kind(v):
-    if re.fullmatch(r"([0-9a-fA-F]{2}[:-]){5}[0-9a-fA-F]{2}|([0-9a-fA-F]{4}\.){2}[0-9a-fA-F]{4}", v):
-        return "mac"
-    if re.fullmatch(r"\d+\.\d+\.\d+\.\d+", v) or (":" in v and re.fullmatch(r"[0-9a-fA-F:]+", v)):
-        return "ip"
-    return "hostname"
-
-
-# ---------------------------------------------------------------- 정규화
-
-def norm_mac(v):
-    """aa-bb-.., aabb.ccdd.eeff, AABBCCDDEEFF 등을 aa:bb:cc:dd:ee:ff 로. 형식이 아니면 빈 문자열."""
-    h = re.sub(r"[^0-9a-f]", "", v.strip().lower())
-    if len(h) != 12:
-        return ""
-    return ":".join(h[i:i + 2] for i in range(0, 12, 2))
-
-
 def host_key(v):
     """호스트명 비교 키: 소문자 단축명, NetBIOS 15자 절단 반영."""
     v = v.strip().lower().split("\\")[-1].split(".")[0].rstrip("$")
@@ -444,37 +368,12 @@ def summarize(tenancies, shared_macs, domain_names):
         "last_seen": max(i["last"] for i in ips),
         "signal_count": count,
         "sources": dict(sources.most_common()),
-        "managed": None,
-        "managed_by": "",
     }
-
-
-def match_agents(assets, agents):
-    """자산마다 관리 여부를 표시하고, Agent 목록 진단 정보를 반환한다."""
-    seen = {"ip": set(), "mac": set(), "hostname": set()}
-    for a in assets:
-        seen["mac"].update(a["macs"])
-        seen["hostname"].update(host_key(h) for h in a["hostnames"] + a["dns_names"] + a["machine_accounts"])
-        seen["ip"].update(i["ip"] for i in a["ips"])
-    for a in assets:
-        hit = ""
-        if set(a["macs"]) & agents["mac"]:
-            hit = "mac"
-        else:
-            names = {host_key(h) for h in a["hostnames"] + a["dns_names"] + a["machine_accounts"]}
-            if names & agents["hostname"]:
-                hit = "hostname"
-            elif {i["ip"] for i in a["ips"]} & agents["ip"]:
-                hit = "ip"
-        a["managed"] = bool(hit)
-        a["managed_by"] = hit
-    return {k: {"loaded": len(agents[k]), "matched": len(agents[k] & seen[k]),
-                "sample": sorted(agents[k])[:3]} for k in ("ip", "mac", "hostname")}
 
 
 # ---------------------------------------------------------------- 출력
 
-CSV_FIELDS = ["asset_id", "id_type", "id_value", "confidence", "managed", "display_name", "hostname", "fqdn", "domain",
+CSV_FIELDS = ["asset_id", "id_type", "id_value", "confidence", "display_name", "hostname", "fqdn", "domain",
               "os", "roles", "macs", "ips", "machine_accounts", "dhcp_client_ids", "users", "services",
               "dns_names", "via_gateway_mac", "first_seen", "last_seen", "signal_count", "sources"]
 
@@ -482,12 +381,6 @@ CSV_FIELDS = ["asset_id", "id_type", "id_value", "confidence", "managed", "displ
 def ip_text(a, tz):
     return "; ".join("%s(%s~%s)" % (i["ip"], fmt_ts(i["first"], tz), fmt_ts(i["last"], tz)[11:])
                      for i in a["ips"])
-
-
-def managed_text(a):
-    if a["managed"] is None:
-        return "-"
-    return "관리(%s)" % a["managed_by"] if a["managed"] else "미관리"
 
 
 def write_csv(path, assets, tz):
@@ -500,8 +393,6 @@ def write_csv(path, assets, tz):
                 v = a.get(k)
                 if k == "ips":
                     v = ip_text(a, tz)
-                elif k == "managed":
-                    v = managed_text(a)
                 elif k in ("first_seen", "last_seen"):
                     v = fmt_ts(v, tz)
                 elif k == "sources":
@@ -539,8 +430,6 @@ def stats(result, sigs, zeek_dir, signal_path):
         "asset_count": len(assets),
         "by_id_type": [(KEY_LABEL[k], sum(1 for a in assets if a["id_type"] == k)) for k in KEY_PRIORITY],
         "coverage": [(k, v, 100.0 * v / n) for k, v in coverage],
-        "managed": (sum(1 for a in assets if a["managed"]), sum(1 for a in assets if a["managed"] is False)),
-        "agents_given": any(a["managed"] is not None for a in assets),
         "volume": vol,
     }
 
@@ -564,18 +453,6 @@ def write_report(path, result, st, tz, src):
     p("[자산 요약]  총 %d개" % st["asset_count"])
     for label, c in st["by_id_type"]:
         p("  - 식별 키 %-15s: %d" % (label, c))
-    if st["agents_given"]:
-        p("  - 관리(Agent 설치)     : %d" % st["managed"][0])
-        p("  - 미관리               : %d" % st["managed"][1])
-        diag = result.get("agent_diag")
-        if diag:
-            p("  - Agent 목록 대조      : " + ", ".join(
-                "%s %d건 중 %d건 관측" % (k, d["loaded"], d["matched"]) for k, d in diag.items()))
-            if not any(d["loaded"] for d in diag.values()):
-                p("    ! Agent 목록에서 값을 하나도 읽지 못함: 헤더(ip/mac/hostname)와 구분자를 확인")
-            elif not st["managed"][0]:
-                p("    ! 매칭 0건: 목록 값 예시 " + "; ".join(
-                    "%s=%s" % (k, ",".join(d["sample"])) for k, d in diag.items() if d["sample"]))
     p("")
     p("[키 커버리지]  (자산 중 해당 정보가 확인된 비율)")
     for label, c, pct in st["coverage"]:
@@ -608,12 +485,10 @@ def write_report(path, result, st, tz, src):
         p("")
     p("[자산 목록]")
     widths = (13, 22, 20, 16, 18, 28)
-    p(row_text(widths, ("asset_id", "식별 키(신뢰도)", "호스트명", "IP", "MAC", "OS"), "관리 / 역할"))
+    p(row_text(widths, ("asset_id", "식별 키(신뢰도)", "호스트명", "IP", "MAC", "OS"), "역할"))
     p("-" * 140)
     for a in result["assets"]:
         extra = ", ".join(a["roles"])
-        if a["managed"] is not None:
-            extra = (managed_text(a) + " / " + extra) if extra else managed_text(a)
         cells = (a["asset_id"], "%s(%s)" % (KEY_LABEL[a["id_type"]], a["confidence"]), a["display_name"] or "-",
                  ",".join(i["ip"] for i in a["ips"]), a["macs"][0] if a["macs"] else "-", a["os"] or "-")
         p(row_text(widths, cells, extra))
@@ -668,8 +543,6 @@ def write_html(path, result, st, tz, src, sigs):
             "asset_count": st["asset_count"],
             "by_id_type": st["by_id_type"],
             "coverage": st["coverage"],
-            "managed": st["managed"],
-            "agents_given": st["agents_given"],
             "by_signal": st["by_signal"],
             "by_source": st["by_source"],
             "volume": [hsize(v) for v in st["volume"]] + [round(100.0 * st["volume"][0] / st["volume"][1], 1) if st["volume"][1] else 0] if st["volume"] else None,
@@ -677,8 +550,7 @@ def write_html(path, result, st, tz, src, sigs):
         "shared_macs": result["shared_macs"],
         "reused_ips": {ip: [fmt_ts(t, tz) for t in v] for ip, v in result["reused_ips"].items()},
         "dup_hostnames": result["dup_hostnames"],
-        "agent_diag": result.get("agent_diag"),
-        "assets": [dict(a, ips_text=ip_text(a, tz), managed_text=managed_text(a), id_label=KEY_LABEL[a["id_type"]],
+        "assets": [dict(a, ips_text=ip_text(a, tz), id_label=KEY_LABEL[a["id_type"]],
                         first_seen=fmt_ts(a["first_seen"], tz), last_seen=fmt_ts(a["last_seen"], tz),
                         ips=[dict(i, first=fmt_ts(i["first"], tz), last=fmt_ts(i["last"], tz)) for i in a["ips"]])
                    for a in result["assets"]],
@@ -696,7 +568,6 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description="asset_signal.log 로 자산을 판정하고 리포트를 만든다.")
     ap.add_argument("signal_log", help="Zeek asset_signal.log (JSON)")
     ap.add_argument("-o", "--out-dir", default=".", help="출력 디렉터리 (기본: 현재)")
-    ap.add_argument("-a", "--agents", help="MDS Agent 목록 CSV (ip/mac/hostname 컬럼 또는 값 한 줄씩)")
     ap.add_argument("-z", "--zeek-dir", help="Zeek 로그 디렉터리 (로그량 비교용, 기본: signal_log 위치)")
     ap.add_argument("--shared-mac-threshold", type=int, default=3,
                     help="conn 출처 MAC이 이 개수 이상의 IP에 보이면 공유 MAC으로 판단 (기본 3)")
@@ -708,9 +579,6 @@ def main(argv=None):
     tz = dt.timezone(dt.timedelta(hours=args.tz))
     sigs = load_signals(args.signal_log)
     result = resolve(sigs, args.shared_mac_threshold, args.max_idle * 3600)
-    result["agent_diag"] = None
-    if args.agents:
-        result["agent_diag"] = match_agents(result["assets"], load_agents(args.agents))
 
     os.makedirs(args.out_dir, exist_ok=True)
     zeek_dir = args.zeek_dir or os.path.dirname(os.path.abspath(args.signal_log))
@@ -719,9 +587,6 @@ def main(argv=None):
     write_csv(os.path.join(args.out_dir, "assets.csv"), result["assets"], tz)
     with open(os.path.join(args.out_dir, "assets.json"), "w", encoding="utf-8") as f:
         json.dump(result["assets"], f, ensure_ascii=False, indent=1)
-    if args.agents:
-        write_csv(os.path.join(args.out_dir, "unmanaged.csv"),
-                  [a for a in result["assets"] if a["managed"] is False], tz)
     text = write_report(os.path.join(args.out_dir, "report.txt"), result, st, tz, args.signal_log)
     write_html(os.path.join(args.out_dir, "report.html"), result, st, tz, args.signal_log, sigs)
     if not args.quiet:

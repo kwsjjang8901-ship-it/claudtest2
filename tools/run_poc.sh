@@ -4,7 +4,6 @@
 # 사용법: tools/run_poc.sh [옵션] <pcap>
 #   -o DIR     출력 디렉터리 (기본: out/<pcap 이름>)
 #   -n CIDRS   자산 대역, 쉼표 구분 (기본: RFC1918 등 사설 대역)  예) -n 10.0.0.0/8,172.20.0.0/16
-#   -a CSV     MDS Agent 목록 CSV (미관리 자산 판정)
 #   -d         로컬 zeek가 있어도 Docker(zeek/zeek) 사용
 #   -z ARGS    zeek에 추가로 넘길 인자 (예: -z "AssetID::suppress_interval=30min")
 #   -h         도움말
@@ -16,15 +15,14 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ZEEK_IMAGE="${ZEEK_IMAGE:-zeek/zeek:9.0.1}"
 PYTHON="${PYTHON:-python3}"
-OUT="" NETS="" AGENTS="" FORCE_DOCKER=0 ZEEK_EXTRA=""
+OUT="" NETS="" FORCE_DOCKER=0 ZEEK_EXTRA=""
 
-usage() { sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
-while getopts "o:n:a:dz:h" opt; do
+while getopts "o:n:dz:h" opt; do
 	case "$opt" in
 		o) OUT="$OPTARG" ;;
 		n) NETS="$OPTARG" ;;
-		a) AGENTS="$OPTARG" ;;
 		d) FORCE_DOCKER=1 ;;
 		z) ZEEK_EXTRA="$OPTARG" ;;
 		h) usage 0 ;;
@@ -36,13 +34,13 @@ shift $((OPTIND - 1))
 
 PCAP="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
 [ -f "$PCAP" ] || { echo "pcap 없음: $1" >&2; exit 1; }
-[ -z "$AGENTS" ] || AGENTS="$(cd "$(dirname "$AGENTS")" && pwd)/$(basename "$AGENTS")"
 
 NAME="$(basename "$PCAP")"; NAME="${NAME%.*}"
 OUT="${OUT:-$ROOT/out/$NAME}"
 mkdir -p "$OUT/zeek"
 OUT="$(cd "$OUT" && pwd)"
-rm -f "$OUT"/zeek/*.log
+# 이전 실행 결과 정리
+rm -f "$OUT"/zeek/*.log "$OUT"/*.csv "$OUT"/*.json "$OUT"/report.*
 
 # 자산 대역 설정 파일
 {
@@ -89,7 +87,6 @@ echo "      완료 ($(( $(date +%s) - start ))초)"
 
 echo "[2/2] 자산 판정"
 args=( "$OUT/zeek/asset_signal.log" -o "$OUT" -z "$OUT/zeek" )
-[ -z "$AGENTS" ] || args+=( -a "$AGENTS" )
 "$PYTHON" "$ROOT/tools/asset_resolver.py" "${args[@]}"
 
 echo
@@ -97,5 +94,4 @@ echo "결과: $OUT"
 echo "  - report.html   브라우저로 열기"
 echo "  - report.txt    텍스트 요약"
 echo "  - assets.csv    자산 목록 (Excel)"
-[ -z "$AGENTS" ] || echo "  - unmanaged.csv 미관리 자산"
 echo "  - zeek/asset_signal.log  센서 원본 신호"

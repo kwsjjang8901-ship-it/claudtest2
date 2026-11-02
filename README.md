@@ -16,16 +16,15 @@ Docker로 8.0을 쓰려면 `ZEEK_IMAGE=zeek/zeek:8.0.9 tools/run_poc.sh ...`처�
 
 ```bash
 # 1) 데모 pcap으로 확인
-tools/run_poc.sh -a tests/data/agents_sample.csv tests/pcaps/demo.pcap
+tools/run_poc.sh tests/pcaps/demo.pcap
 
 # 2) 운영 pcap
-tools/run_poc.sh -n 10.0.0.0/8,172.16.0.0/12 -a agents.csv /data/capture.pcap
+tools/run_poc.sh -n 10.0.0.0/8,172.16.0.0/12 /data/capture.pcap
 ```
 
 | 옵션 | 설명 |
 |---|---|
 | `-n CIDRS` | 자산 대역(쉼표 구분). 생략하면 Zeek 사설 대역(RFC1918 등). **내부망에 공인 IP를 쓰면 반드시 지정** |
-| `-a CSV` | MDS Agent 목록. 헤더(`ip`/`mac`/`hostname`, `IP 주소`/`MAC 주소`/`호스트명` 등)가 있으면 컬럼으로, 없으면 값 모양으로 판별. UTF-8/CP949, 쉼표/탭/세미콜론 구분, 한 칸에 여러 값 가능. 리포트에 로드·매칭 건수 표시 |
 | `-o DIR` | 출력 디렉터리 (기본 `out/<pcap 이름>/`) |
 | `-d` | 로컬 zeek가 있어도 Docker 사용 |
 | `-z ARGS` | zeek 추가 인자. 예) `-z "AssetID::suppress_interval=30min"` |
@@ -40,7 +39,6 @@ pcap이 여러 개이면 `mergecap -w merged.pcap *.pcap`으로 합친 뒤 실�
 | `report.txt` | 터미널 요약 (실행 시 화면에도 출력) |
 | `assets.csv` | 자산 목록 (Excel에서 바로 열림, UTF-8 BOM) |
 | `assets.json` | 자산 목록 원본 (Manager 연동 검토용) |
-| `unmanaged.csv` | `-a` 지정 시 미관리 자산 |
 | `zeek/asset_signal.log` | 센서 원본 신호 (JSON) + Zeek 기본 로그 (교차 확인용) |
 
 데모 pcap 결과 예시 (`report.txt` 일부):
@@ -51,12 +49,12 @@ pcap이 여러 개이면 `mergecap -w merged.pcap *.pcap`으로 합친 뒤 실�
 [IP 재사용 (점유 단말 변경)]
   10.10.0.120  변경 시각: 2026-10-30 13:00:30
 
-asset_id      식별 키(신뢰도)        호스트명             IP               MAC                OS                           관리 / 역할
-A-98f274dde0  머신 계정(높음)        win10-hr01           10.10.0.101      3c:52:82:11:22:33  windows 10/11                관리(hostname)
-A-88f72467ac  DHCP client-id(높음)   galaxy-s24           10.10.0.120      02:1a:11:fe:dc:ba  android 14                   미관리
-A-83ce25a445  DHCP client-id(높음)   laptop-sales07       10.10.0.120      00:21:cc:01:02:03  windows 10/11                미관리
-A-96823b3723  MAC(중간)              dc01 (dns)           10.10.1.10       00:50:56:aa:10:10  -                            관리(ip) / 도메인 컨트롤러, DNS 서버, DHCP 서버, 파일 서버(SMB)
-A-74eaea43f4  IP+시간(낮음)          -                    10.20.5.11       -                  -                            미관리
+asset_id      식별 키(신뢰도)        호스트명             IP               MAC                OS                           역할
+A-98f274dde0  머신 계정(높음)        win10-hr01           10.10.0.101      3c:52:82:11:22:33  windows 10/11
+A-88f72467ac  DHCP client-id(높음)   galaxy-s24           10.10.0.120      02:1a:11:fe:dc:ba  android 14
+A-83ce25a445  DHCP client-id(높음)   laptop-sales07       10.10.0.120      00:21:cc:01:02:03  windows 10/11
+A-96823b3723  MAC(중간)              dc01 (dns)           10.10.1.10       00:50:56:aa:10:10  -                            도메인 컨트롤러, DNS 서버, DHCP 서버, 파일 서버(SMB)
+A-74eaea43f4  IP+시간(낮음)          -                    10.20.5.11       -                  -
 ```
 
 ## 수집하는 신호
@@ -77,7 +75,7 @@ A-74eaea43f4  IP+시간(낮음)          -                    10.20.5.11       -
 ## 테스트
 
 ```bash
-tests/run_tests.sh                               # Zeek btest(13) + 리졸버 unittest(15)
+tests/run_tests.sh                               # Zeek btest(13) + 리졸버 unittest(11)
 ZEEK_IMAGE=zeek/zeek:8.0.9 tests/run_tests.sh    # Zeek 8.0으로 btest
 ```
 
@@ -88,3 +86,8 @@ ZEEK_IMAGE=zeek/zeek:8.0.9 tests/run_tests.sh    # Zeek 8.0으로 btest
 
 `scripts/` 디렉터리를 nsm_rules 아래로 복사하고 `@load ./asset-id` 한 줄을 추가하면 됩니다.
 자세한 내용은 [docs/DESIGN.md의 머지 가이드](docs/DESIGN.md#7-nsm_rules-머지-가이드)를 참고하세요.
+
+## 범위 밖 (Next 단계 검토)
+
+- **MDS Agent 목록 대조(미관리 자산 판정):** 원페이저의 "미관리 자산 가시화" 기능입니다. 이번 PoC 범위에서 제외했고,
+  Manager의 Agent 목록 조회 인터페이스가 확정되면 Next 단계에서 검토합니다.
