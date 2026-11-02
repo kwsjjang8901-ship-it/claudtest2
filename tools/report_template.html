@@ -33,7 +33,7 @@ main > *, .grid2 > * { min-width: 0; }
 .card .v { font-size: 24px; font-weight: 650; font-variant-numeric: tabular-nums; }
 .card .k { color: var(--muted); font-size: 12px; }
 .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
-.bar-row { display: grid; grid-template-columns: 110px 1fr 70px; align-items: center; gap: 8px; margin: 6px 0; }
+.bar-row { display: grid; grid-template-columns: 110px 1fr auto; align-items: center; gap: 8px; margin: 6px 0; }
 .bar { height: 10px; background: var(--chip); border-radius: 5px; overflow: hidden; }
 .bar > span { display: block; height: 100%; background: var(--accent); }
 .num { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); font-size: 12px; }
@@ -76,6 +76,16 @@ footer { color: var(--muted); font-size: 12px; padding: 0 24px 24px; }
     <div class="panel"><h2>키 커버리지</h2><div id="coverage"></div></div>
     <div class="panel"><h2>식별 키별 자산 수</h2><div id="idtypes"></div>
       <h2 style="margin-top:14px">신호 종류 / 출처</h2><div class="chips" id="bysignal"></div><div class="chips" id="bysource"></div></div>
+  </section>
+  <section class="panel">
+    <h2>식별 품질</h2>
+    <div class="sub" style="margin:-6px 0 12px">식별 = 대표 키가 IP+시간이 아님 · 신뢰 식별 = 그중 신뢰도 '낮음'(conn MAC만) 제외 · 능동 IP = 연결을 먼저 연 IP</div>
+    <div class="cards" id="q-cards"></div>
+    <div class="grid2" style="margin-top:16px">
+      <div><h2>캡처 시간별 식별률</h2><div id="q-curve"></div>
+        <h2 style="margin-top:14px">식별 소요 시간 (처음 관측 → 식별 키)</h2><div id="q-tti"></div></div>
+      <div><h2>구간(/24)별 식별률</h2><div class="table-wrap"><table><thead><tr><th>구간</th><th>자산</th><th>식별</th><th>신뢰 식별</th></tr></thead><tbody id="q-nets"></tbody></table></div></div>
+    </div>
   </section>
   <section class="panel" id="notes-panel"><h2>확인 필요 항목</h2><div id="notes"></div></section>
   <section class="panel">
@@ -124,6 +134,21 @@ $("coverage").innerHTML = bars(st.coverage);
 $("idtypes").innerHTML = bars(st.by_id_type, st.asset_count);
 $("bysignal").innerHTML = st.by_signal.map(([k, v]) => `<span>${esc(k)} ${v}</span>`).join("");
 $("bysource").innerHTML = st.by_source.map(([k, v]) => `<span>${esc(k)} ${v}</span>`).join("");
+
+const q = st.quality;
+const qCards = [["전체 식별률", q.overall.identified_pct + "%", `${q.overall.identified} / ${q.overall.n}`],
+  ["전체 신뢰 식별률", q.overall.trusted_pct + "%", `${q.overall.trusted} / ${q.overall.n}`]];
+if (q.active_passive) {
+  const ap = q.active_passive;
+  qCards.push(["능동 IP 식별률", ap.active.identified_pct + "%", `${ap.active.identified} / ${ap.active.n}`],
+    ["수동 IP 식별률", ap.passive.identified_pct + "%", `${ap.passive.identified} / ${ap.passive.n}`]);
+}
+$("q-cards").innerHTML = qCards.map(([k, v, d]) => `<div class="card"><div class="v">${esc(v)}</div><div class="k">${esc(k)} · ${esc(d)}</div></div>`).join("");
+$("q-curve").innerHTML = bars(q.curve.map(([label, seen, idn, p]) => [`${label}`, `${idn}/${seen}`, p]));
+const ttiTotal = q.tti.reduce((s, [, v]) => s + v, 0);
+$("q-tti").innerHTML = bars(q.tti, ttiTotal);
+$("q-nets").innerHTML = q.subnets.map(([net, r]) => `<tr><td class="mono">${esc(net)}</td><td class="num">${r.n}</td><td class="num">${r.identified_pct}%</td><td class="num">${r.trusted_pct}%</td></tr>`).join("")
+  + (q.subnet_total > q.subnets.length ? `<tr><td colspan="4" class="muted">상위 ${q.subnets.length}개 / 전체 ${q.subnet_total}개 구간</td></tr>` : "");
 
 const notes = [];
 for (const [mac, ips] of Object.entries(D.shared_macs))

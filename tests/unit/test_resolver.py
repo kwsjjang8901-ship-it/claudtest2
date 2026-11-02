@@ -162,6 +162,25 @@ class TestResolver(unittest.TestCase):
         self.assertEqual(list(r["dup_hostnames"]), ["desktop-1"])
 
 
+class TestIdQuality(unittest.TestCase):
+    def test_rates_curve_and_active_split(self):
+        r = resolve([
+            sig(0, "10.0.0.5", "os_hint", "windows", "http_ua", 50),
+            sig(20 * 60, "10.0.0.5", "machine_account", "corp\\pc05$", "kerberos", 95),
+            sig(0, "10.0.0.6", "mac", "aa:aa:aa:aa:aa:06", "conn", 40),
+            sig(0, "10.0.1.7", "service", "tcp/443", "service"),
+        ])
+        q = ar.id_quality(r["assets"], {"10.0.0.5", "10.0.1.7"}, 0, 3600)
+        self.assertEqual((q["overall"]["n"], q["overall"]["identified"], q["overall"]["trusted"]), (3, 2, 1))
+        curve = {label: (seen, idn) for label, seen, idn, _ in q["curve"]}
+        self.assertEqual(curve["10분"], (3, 1))   # pc05는 20분에 식별
+        self.assertEqual(curve["30분"], (3, 2))
+        self.assertEqual(dict(q["tti"])["10~30분"], 1)
+        self.assertEqual(q["active_passive"]["active"]["identified"], 1)
+        self.assertEqual(q["active_passive"]["passive"]["n"], 1)
+        self.assertEqual(dict(q["subnets"])["10.0.0.0/24"]["n"], 2)
+
+
 class TestCaptureHealth(unittest.TestCase):
     def test_one_way_mirror_detected(self):
         with tempfile.TemporaryDirectory() as d:

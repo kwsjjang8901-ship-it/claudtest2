@@ -302,10 +302,13 @@ def summarize(tenancies, shared_macs, domain_names):
     os_cands = {}
     ips = []
     count = 0
+    id_ts = None  # 식별 키를 처음 얻은 시각
     for t in tenancies:
         ips.append({"ip": t.ip, "first": t.first, "last": t.last})
         for s in t.sigs:
             count += 1
+            if identity_of(s, shared_macs, domain_names) and (id_ts is None or s.ts < id_ts):
+                id_ts = s.ts
             sources[s.source] += 1
             v = s.value
             if s.signal == "mac" and s.source == "conn" and v in shared_macs:
@@ -381,6 +384,7 @@ def summarize(tenancies, shared_macs, domain_names):
         "ips": ips,
         "first_seen": min(i["first"] for i in ips),
         "last_seen": max(i["last"] for i in ips),
+        "identified_at": id_ts,
         "signal_count": count,
         "sources": dict(sources.most_common()),
     }
@@ -419,12 +423,18 @@ def write_csv(path, assets, tz):
 
 
 def capture_health(zeek_dir):
-    """conn.log로 미러 품질 점검: TCP 연결 중 양방향(요청+응답)이 보인 비율.
-    history의 대문자는 연결 시작측, 소문자는 응답측 활동이다. JSON/TSV 둘 다 읽는다."""
+    return scan_conn_log(zeek_dir)[0]
+
+
+def scan_conn_log(zeek_dir):
+    """conn.log를 한 번 읽어 (미러 품질, 연결을 먼저 연 IP 집합)을 돌려준다.
+    미러 품질: TCP 연결 중 양방향(요청+응답)이 보인 비율. history의 대문자는 연결 시작측,
+    소문자는 응답측 활동이다. JSON/TSV 둘 다 읽는다."""
     path = os.path.join(zeek_dir or "", "conn.log")
     if not zeek_dir or not os.path.isfile(path):
-        return None
+        return None, None
     tcp = both = orig_only = resp_only = 0
+    active = set()
     fields = None
     with open(path, encoding="utf-8", errors="replace") as f:
         for line in f:
@@ -442,6 +452,8 @@ def capture_health(zeek_dir):
                 d = dict(zip(fields, line.rstrip("\n").split("\t")))
             else:
                 continue
+            if d.get("id.orig_h"):
+                active.add(d["id.orig_h"])
             if d.get("proto") != "tcp":
                 continue
             h = d.get("history") or ""
@@ -453,14 +465,86 @@ def capture_health(zeek_dir):
                 orig_only += 1
             elif low:
                 resp_only += 1
-    if not tcp:
-        return None
-    return {"tcp": tcp, "both": both, "orig_only": orig_only, "resp_only": resp_only,
-            "both_pct": round(100.0 * both / tcp, 1)}
+    health = None
+    if tcp:
+        health = {"tcp": tcp, "both": both, "orig_only": orig_only, "resp_only": resp_only,
+                  "both_pct": round(100.0 * both / tcp, 1)}
+    return health, active
 
 
 # 양방향 비율이 이보다 낮으면 단방향 미러로 의심한다.
 BIDIR_WARN_PCT = 50
+
+
+TTI_BUCKETS = [(60, "1분 이내"), (600, "1~10분"), (1800, "10~30분"), (3600, "30분~1시간"),
+               (7200, "1~2시간"), (14400, "2~4시간"), (float("inf"), "4시간 초과")]
+CURVE_POINTS = [(300, "5분"), (600, "10분"), (1800, "30분"), (3600, "1시간"), (7200, "2시간"),
+                (14400, "4시간"), (28800, "8시간"), (86400, "24시간")]
+
+
+def pct(a, b):
+    return round(100.0 * a / b, 1) if b else 0.0
+
+
+def subnet_of(ip):
+    if ":" in ip:
+        return "IPv6"
+    return ".".join(ip.split(".")[:3]) + ".0/24"
+
+
+def id_quality(assets, active, t_start, t_end):
+    """식별 품질 지표 (정답 목록 없이 계산 가능한 것).
+    식별 = 대표 키가 IP+시간이 아님, 신뢰 식별 = 그중 신뢰도 '낮음'이 아닌 것."""
+    ided = lambda a: a["id_type"] != "ip"
+    trusted = lambda a: ided(a) and a["confidence"] != "낮음"
+
+    def rates(lst):
+        n = len(lst)
+        i = sum(1 for a in lst if ided(a))
+        t = sum(1 for a in lst if trusted(a))
+        return {"n": n, "identified": i, "identified_pct": pct(i, n), "trusted": t, "trusted_pct": pct(t, n)}
+
+    # 식별 소요 시간: 처음 관측 -> 식별 키 확보
+    tti = Counter()
+    for a in assets:
+        if a["identified_at"] is not None:
+            d = max(0.0, a["identified_at"] - a["first_seen"])
+            tti[next(label for lim, label in TTI_BUCKETS if d < lim)] += 1
+    tti_rows = [(label, tti.get(label, 0)) for _, label in TTI_BUCKETS]
+
+    # 캡처 시간별 식별률: 시점 t까지 관측된 자산 중 t까지 식별된 비율
+    curve = []
+    dur = t_end - t_start
+    for sec, label in CURVE_POINTS + [(dur, "전체(%s)" % fmt_dur(dur))]:
+        if sec > dur and label[0] != "전":
+            continue
+        cut = t_start + sec
+        seen = [a for a in assets if a["first_seen"] <= cut]
+        idn = sum(1 for a in seen if a["identified_at"] is not None and a["identified_at"] <= cut)
+        curve.append((label, len(seen), idn, pct(idn, len(seen))))
+
+    # 구간(/24)별
+    by_net = defaultdict(list)
+    for a in assets:
+        by_net[subnet_of(a["ips"][0]["ip"])].append(a)
+    nets = sorted(((k, rates(v)) for k, v in by_net.items()), key=lambda kv: -kv[1]["n"])
+
+    # 능동(연결을 먼저 연 IP) / 수동(상대로만 보인 IP)
+    split = None
+    if active is not None:
+        act = [a for a in assets if any(i["ip"] in active for i in a["ips"])]
+        pas = [a for a in assets if not any(i["ip"] in active for i in a["ips"])]
+        split = {"active": rates(act), "passive": rates(pas)}
+
+    return {"overall": rates(assets), "tti": tti_rows, "curve": curve,
+            "subnets": nets[:20], "subnet_total": len(nets), "active_passive": split}
+
+
+def fmt_dur(sec):
+    sec = int(sec)
+    if sec >= 3600:
+        return "%d시간 %d분" % (sec // 3600, sec % 3600 // 60)
+    return "%d분" % (sec // 60) if sec >= 60 else "%d초" % sec
 
 
 def stats(result, sigs, zeek_dir, signal_path):
@@ -476,6 +560,7 @@ def stats(result, sigs, zeek_dir, signal_path):
         ("OS 추정", cov(lambda a: a["os"])),
         ("역할 추정", cov(lambda a: a["roles"])),
     ]
+    health, active = scan_conn_log(zeek_dir)
     vol = None
     if zeek_dir and os.path.isdir(zeek_dir):
         total = sum(os.path.getsize(os.path.join(zeek_dir, f)) for f in os.listdir(zeek_dir)
@@ -491,7 +576,8 @@ def stats(result, sigs, zeek_dir, signal_path):
         "by_id_type": [(KEY_LABEL[k], sum(1 for a in assets if a["id_type"] == k)) for k in KEY_PRIORITY],
         "coverage": [(k, v, 100.0 * v / n) for k, v in coverage],
         "volume": vol,
-        "capture": capture_health(zeek_dir),
+        "capture": health,
+        "quality": id_quality(assets, active, *((sigs[0].ts, sigs[-1].ts) if sigs else (0, 0))),
     }
 
 
@@ -522,6 +608,25 @@ def write_report(path, result, st, tz, src):
     p("[자산 요약]  총 %d개" % st["asset_count"])
     for label, c in st["by_id_type"]:
         p("  - 식별 키 %-15s: %d" % (label, c))
+    p("")
+    q = st["quality"]
+    o = q["overall"]
+    p("[식별 품질]  식별 = 대표 키가 IP+시간이 아님, 신뢰 식별 = 그중 신뢰도 '낮음' 제외")
+    p("  %s: %d개 중 식별 %d (%.1f%%), 신뢰 식별 %d (%.1f%%)" % (
+        pad("전체", 20), o["n"], o["identified"], o["identified_pct"], o["trusted"], o["trusted_pct"]))
+    if q["active_passive"]:
+        for key, label in (("active", "능동 IP(연결 시작)"), ("passive", "수동 IP(상대로만)")):
+            r = q["active_passive"][key]
+            p("  %s: %d개 중 식별 %d (%.1f%%), 신뢰 식별 %d (%.1f%%)" % (
+                pad(label, 20), r["n"], r["identified"], r["identified_pct"], r["trusted"], r["trusted_pct"]))
+    p("  캡처 시간별 식별률 (그 시점까지 관측된 자산 기준):")
+    for label, seen, idn, pc in q["curve"]:
+        p("    %s 관측 %5d  식별 %5d  %5.1f%%  %s" % (pad(label, 16), seen, idn, pc, "#" * int(pc / 5)))
+    p("  식별 소요 시간 (처음 관측 -> 식별 키 확보):")
+    p("    " + ", ".join("%s %d" % kv for kv in q["tti"]))
+    p("  구간(/24)별 식별률 (자산 수 상위 %d / 전체 %d개 구간):" % (len(q["subnets"]), q["subnet_total"]))
+    for net, r in q["subnets"]:
+        p("    %-18s %5d개  식별 %5.1f%%  신뢰 식별 %5.1f%%" % (net, r["n"], r["identified_pct"], r["trusted_pct"]))
     p("")
     p("[키 커버리지]  (자산 중 해당 정보가 확인된 비율)")
     for label, c, pct in st["coverage"]:
@@ -570,6 +675,10 @@ def disp_width(s):
     return sum(2 if unicodedata.east_asian_width(c) in "WF" else 1 for c in s)
 
 
+def pad(text, width):
+    return text + " " * max(0, width - disp_width(text))
+
+
 def row_text(widths, cells, tail):
     out = []
     for w, c in zip(widths, cells):
@@ -615,6 +724,7 @@ def write_html(path, result, st, tz, src, sigs):
             "by_signal": st["by_signal"],
             "by_source": st["by_source"],
             "capture": st["capture"],
+            "quality": st["quality"],
             "bidir_warn_pct": BIDIR_WARN_PCT,
             "volume": [hsize(v) for v in st["volume"]] + [round(100.0 * st["volume"][0] / st["volume"][1], 1) if st["volume"][1] else 0] if st["volume"] else None,
         },
