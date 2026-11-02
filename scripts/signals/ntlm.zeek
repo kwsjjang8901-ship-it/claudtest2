@@ -35,8 +35,10 @@ event ntlm_authenticate(c: connection, request: NTLM::Authenticate)
 			emit(ip, USER_ACCOUNT, account, "ntlm", 70, c$uid);
 		}
 
-	# 로컬 계정 로그인이면 domain이 상대 서버/자기 이름일 수 있어 신뢰도를 낮춘다.
-	emit(ip, DOMAIN, domain, "ntlm", 60, c$uid);
+	# 로컬 계정 로그인은 domain 자리에 자기(또는 상대) 컴퓨터 이름이 들어온다.
+	local ws = request?$workstation ? normalize_name(request$workstation) : "";
+	if ( domain != ws )
+		emit(ip, DOMAIN, domain, "ntlm", 60, c$uid);
 
 	if ( request?$version )
 		emit(ip, OS_HINT, ntlm_version(request$version), "ntlm", 80, c$uid);

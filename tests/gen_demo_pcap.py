@@ -10,6 +10,7 @@
   - HTTP User-Agent, SSH 배너, 서비스(DC, 웹, 프린터)
   - DHCP IP 재사용: 같은 IP를 시간차로 다른 단말이 할당받음 (자산 2개여야 함)
   - 라우팅 구간: 원격 대역 IP들이 게이트웨이 MAC으로 보임 (공유 MAC)
+  - CLDAP Netlogon ping(DC 찾기), 사내 서버 이름(TLS SNI, HTTP Host)
   - NTLM: Zeek 테스트 trace(raw_ntlm_in_smb.pcap)가 있으면 IP/MAC을 바꿔 섞음
 
 사용법:
@@ -25,7 +26,10 @@ from scapy.all import ARP, DNS, DNSQR, DNSRR, IP, TCP, UDP, Ether, Raw, rdpcap, 
 from scapy.layers.dhcp import BOOTP, DHCP
 from scapy.layers.kerberos import KRB_AS_REQ, KRB_KDC_REQ_BODY, Kerberos, PrincipalName
 from scapy.layers.netbios import NBNSHeader, NBNSRegistrationRequest
-from scapy.asn1.asn1 import ASN1_GENERAL_STRING, ASN1_GENERALIZED_TIME, ASN1_INTEGER
+from scapy.layers.ldap import (LDAP, LDAP_Filter, LDAP_FilterAnd, LDAP_FilterEqual, LDAP_SearchRequest,
+                               LDAP_SearchRequestAttribute)
+from scapy.layers.tls.all import TLS, TLSClientHello, TLS_Ext_ServerName, ServerName
+from scapy.asn1.asn1 import ASN1_GENERAL_STRING, ASN1_GENERALIZED_TIME, ASN1_INTEGER, ASN1_STRING
 
 BCAST = "ff:ff:ff:ff:ff:ff"
 T0 = dt.datetime(2026, 10, 30, 9, 0, 0, tzinfo=dt.timezone(dt.timedelta(hours=9))).timestamp()
@@ -151,6 +155,25 @@ def dns_answer(t, cli, cli_mac, qname, rrs, qtype="A", srv=DC, sport=53, dport=N
        / UDP(sport=sport, dport=cport) / r)
 
 
+def cldap_netlogon(t, cli, cli_mac, host, domain="corp.local"):
+    """DC 찾기 Netlogon ping: (&(DnsDomain=..)(Host=..)(User=HOST$)(NtVer=..)) 를 CLDAP(udp/389)로."""
+    def eq(a, v):
+        return LDAP_Filter(filter=LDAP_FilterEqual(attributeType=ASN1_STRING(a), attributeValue=ASN1_STRING(v)))
+    flt = LDAP_Filter(filter=LDAP_FilterAnd(vals=[
+        eq(b"DnsDomain", domain.encode()), eq(b"Host", host.encode()),
+        eq(b"User", host.encode() + b"$"), eq(b"NtVer", b"\x16\x00\x00\x20")]))
+    req = LDAP(messageID=rng.randint(1, 1000), protocolOp=LDAP_SearchRequest(
+        baseObject=b"", scope=0, filter=flt,
+        attributes=[LDAP_SearchRequestAttribute(type=ASN1_STRING(b"Netlogon"))]))
+    at(t, eth(cli_mac, DC[1]) / IP(src=cli, dst=DC[0]) / UDP(sport=rng.randint(49152, 65000), dport=389)
+       / Raw(bytes(req)))
+
+
+def tls_hello(t, cli, cli_mac, srv, srv_mac, sni):
+    hello = TLS(msg=[TLSClientHello(ext=[TLS_Ext_ServerName(servernames=[ServerName(servername=sni.encode())])])])
+    tcp_session(t, cli, cli_mac, srv, srv_mac, 443, bytes(hello))
+
+
 def http_get(t, cli, cli_mac, ua, host="example.com"):
     req = ("GET / HTTP/1.1\r\nHost: %s\r\nUser-Agent: %s\r\nAccept: */*\r\n\r\n" % (host, ua)).encode()
     rsp = b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nContent-Type: text/plain\r\n\r\nok"
@@ -240,6 +263,13 @@ def build(ntlm_trace=None):
 
     if ntlm_trace:
         mix_ntlm_trace(ntlm_trace, 14 * m)
+
+    # 라우팅 구간 PC의 DC 찾기 (출발지 MAC = 게이트웨이) -> 호스트명/도메인/머신 계정
+    cldap_netlogon(15 * m, "10.20.5.11", GW[1], "BRANCH-PC11")
+    # 사내 서버 이름: TLS SNI, HTTP Host
+    tls_hello(16 * m, HR01[0], HR01[1], WEB[0], WEB[1], "portal.corp.local")
+    req = b"GET / HTTP/1.1\r\nHost: intranet.corp.local\r\nUser-Agent: curl/8.5.0\r\n\r\n"
+    tcp_session(16 * m + 5, HR01[0], HR01[1], WEB[0], WEB[1], 80, req, b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")
 
     pkts.sort(key=lambda p: p.time)
     return pkts

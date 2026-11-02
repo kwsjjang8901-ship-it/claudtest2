@@ -45,7 +45,9 @@
 | domain | kerberos / ntlm / dhcp / nbns | 90 / 60-85 / 70 / 60 | realm / 도메인 필드 / option 15·81 / 그룹 suffix `<1b,1c,1d,1e>` |
 | os_hint | ntlm / smb / ssh / dhcp / http_ua | 80 / 70 / 60 / 60 / 50 | NTLM 버전 구조체 / SMB1 native OS / 배너 / vendor class / UA OS 토큰 |
 | service | service / dhcp | 90 | TCP 연결 성립(SYN-ACK) 또는 응답이 있는 연결에서 분석기가 프로토콜을 확인 |
+| machine_account, hostname, domain, fqdn | ldap | 85 / 80 | CLDAP Netlogon ping(DC 찾기) 필터의 `Host`, `DnsDomain`, `User`. 라우팅 구간에서도 보임 |
 | dns_name | dns | 40-50 | 일반 DNS A/PTR 응답. 별칭/로드밸런서일 수 있어 **식별 키로 쓰지 않음** |
+| dns_name | smb / tls / http | 50 | 클라이언트가 서버 접속에 쓴 이름(공유 경로, SNI, Host). 서버 표시용 |
 | user_account | kerberos / ntlm / rdp | 70 / 70 / 50 | 로그인 사용자 (참고 정보) |
 
 신뢰도 값은 PoC 초기값입니다. 운영 pcap 실측 후 SRS에 반영해 조정합니다.
@@ -72,7 +74,7 @@
 |---|---|---|
 | `AssetID::asset_nets` | `{}` | 자산 대역. `option`이라 Config 프레임워크로 운영 중 변경 가능 |
 | `AssetID::suppress_interval` | `1hr` | 중복 억제 기간 (`&redef`) |
-| `AssetID::enable_*` | `T` | 신호 소스별 on/off (`dhcp, arp, conn_mac, kerberos, ntlm, nbns, llmnr, mdns, dns, rdp, smb, http_ua, ssh, services`) |
+| `AssetID::enable_*` | `T` | 신호 소스별 on/off (`dhcp, arp, conn_mac, kerberos, ntlm, ldap, nbns, llmnr, mdns, dns, server_names, rdp, smb, http_ua, ssh, services`) |
 | `AssetID::service_ports` | 주요 포트 | 포트만으로 서비스로 인정할 목록 |
 | `AssetID::ignore_hostnames` | localhost 등 | 식별에 쓸 수 없는 일반 이름 |
 | `AssetID::ignore_service_ports` | 137,138,1900,5353,5355/udp | 거의 모든 단말이 응답하는 포트 |
@@ -103,6 +105,18 @@
 | mDNS 호스트명 오염 | VMware 복제 VM 수십 대의 `has01(N)` 충돌 프로브가 IP당 70여 개 기록됨 | **수정:** 프로브/서비스 인스턴스 이름 제외, 확정 응답만 기록 (btest `mdns-conflict`) |
 | conn 출처 MAC만 있는 자산 | 532개를 "중간"으로 표시 | **수정:** L2(ARP/DHCP) 확인이 없으면 "낮음" |
 | Agent 매칭 | 0 / 3,177 | Agent 목록 대조 기능은 PoC 범위에서 제외(Next 검토) |
+
+### 운영 pcap 2차 결과 (약 6분, 2026-11-02 09:46~09:52)
+
+| 항목 | 결과 | 해석 / 조치 |
+|---|---|---|
+| 자산 / 신호 / 로그량 | 2,950개 / 4,881건 / 원본 대비 0.2% | 1차와 비슷 |
+| 대표 키 | IP+시간 2,683 (91%), MAC(conn, 낮음) 257, 호스트명 7, 머신 계정 3 | DHCP/ARP 0건으로 같은 미러 구간. 식별 키 부족이 가장 큰 과제 |
+| mDNS 오염 | 0건 | 1차 수정이 반영됨 |
+| DC 관측 | ahnad03/04(172.21.10.6/7)의 tcp/88·389·3268, udp/389(CLDAP) | DC 트래픽이 미러에 있음 → **CLDAP Netlogon ping 신호 추가** (도메인 PC가 DC를 찾을 때마다 호스트명·도메인·머신 계정 확보) |
+| 서버 이름 | 웹 서버 84대 중 이름 있는 서버 소수 | **SMB 공유 경로·TLS SNI·HTTP Host를 서버 dns_name으로 수집** |
+| NTLM 로컬 계정 | `desktop-xxx` 로컬 로그인 시 자기 호스트명이 domain으로 기록 | **수정:** domain = workstation이면 기록하지 않음 |
+| 도메인 표기 | 같은 PC에 `ahnbang`과 `ahnbang.ahnlab.com` 혼재 | **수정:** 리졸버가 DNS 형태를 대표값으로 선택 |
 
 다음 측정 권장: 출근 시간대(로그온·DHCP 갱신 집중)를 포함해 1시간 이상 캡처, DHCP 서버·DC 구간 미러 포함 여부 확인.
 

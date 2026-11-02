@@ -283,6 +283,15 @@ def best(counter_conf):
     return max(counter_conf.items(), key=lambda kv: (kv[1][0], kv[1][1]))[0]
 
 
+def best_domain(domains):
+    """'ahnbang'(NetBIOS)과 'ahnbang.ahnlab.com'(DNS)처럼 같은 도메인이면 DNS 형태를 고른다."""
+    top = best(domains)
+    if not top:
+        return ""
+    longer = [d for d in domains if d.split(".")[0] == top.split(".")[0] and len(d) > len(top)]
+    return max(longer, key=len) if longer else top
+
+
 def summarize(tenancies, shared_macs, domain_names):
     vals = defaultdict(dict)  # signal -> {value: (max_conf, count)}
     sources = Counter()
@@ -348,7 +357,7 @@ def summarize(tenancies, shared_macs, domain_names):
         "hostname": hostname,
         "display_name": display_name,
         "fqdn": best(vals.get("fqdn")),
-        "domain": best(vals.get("domain")),
+        "domain": best_domain(vals.get("domain")),
         "machine_accounts": sorted(vals.get("machine_account", {})),
         "dhcp_client_ids": sorted(vals.get("dhcp_client_id", {})),
         "macs": sorted(vals.get("mac", {})),

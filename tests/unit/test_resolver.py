@@ -120,6 +120,15 @@ class TestResolver(unittest.TestCase):
         conf = {a["ips"][0]["ip"]: a["confidence"] for a in r["assets"]}
         self.assertEqual(conf, {"10.0.0.5": "낮음", "10.0.0.6": "중간"})
 
+    def test_dns_domain_preferred_over_netbios(self):
+        r = resolve([
+            sig(0, "10.0.0.5", "machine_account", "ahnbang\\pc01$", "ntlm", 90),
+            sig(0, "10.0.0.5", "domain", "ahnbang", "kerberos", 90),
+            sig(1, "10.0.0.5", "domain", "ahnbang", "ntlm", 60),
+            sig(2, "10.0.0.5", "domain", "ahnbang.ahnlab.com", "kerberos", 90),
+        ])
+        self.assertEqual(r["assets"][0]["domain"], "ahnbang.ahnlab.com")
+
     def test_duplicate_hostnames_reported(self):
         r = resolve([
             sig(0, "10.0.0.5", "mac", "00:50:56:00:00:05", "conn", 40),

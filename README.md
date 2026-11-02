@@ -61,21 +61,22 @@ A-74eaea43f4  IP+시간(낮음)          -                    10.20.5.11       -
 
 | 신호 (`signal`) | 출처 (`source`) | 용도 |
 |---|---|---|
-| `machine_account` | kerberos(AS-REQ `HOST$`), ntlm | 식별 키 1순위 |
+| `machine_account` | kerberos(AS-REQ `HOST$`), ldap(CLDAP Netlogon ping), ntlm | 식별 키 1순위 |
 | `dhcp_client_id` | dhcp(option 61) | 식별 키 2순위 |
 | `mac` | dhcp, arp, conn(L2 주소) | 식별 키 3순위 |
-| `hostname` | dhcp, kerberos, ntlm, rdp, nbns, llmnr, mdns | 식별 키 4순위 |
+| `hostname` | dhcp, kerberos, ldap, ntlm, rdp, nbns, llmnr, mdns | 식별 키 4순위 |
 | `fqdn`, `domain` | dhcp, kerberos, ntlm, nbns, smb | 보조 |
 | `os_hint`, `software` | ntlm(버전), smb(native OS), ssh 배너, http User-Agent, dhcp vendor | OS 추정 |
 | `service` | 연결 성립/프로토콜 확인 | 역할 추정 (DC, DNS, 웹, DB, 프린터 등) |
-| `user_account`, `dns_name`, `dhcp_vendor_class`, `dhcp_fingerprint` | kerberos/ntlm/rdp, dns, dhcp | 참고 정보 (식별 키 아님) |
+| `dns_name` | dns(A/PTR 응답), smb(공유 경로), tls(SNI), http(Host) | 서버 표시 이름 (별칭일 수 있어 식별 키 아님) |
+| `user_account`, `dhcp_vendor_class`, `dhcp_fingerprint` | kerberos/ntlm/rdp, dhcp | 참고 정보 (식별 키 아님) |
 
 신호 정의, 신뢰도 기준, 판정 알고리즘, 한계는 [docs/DESIGN.md](docs/DESIGN.md)에 있습니다.
 
 ## 테스트
 
 ```bash
-tests/run_tests.sh                               # Zeek btest(13) + 리졸버 unittest(11)
+tests/run_tests.sh                               # Zeek btest(15) + 리졸버 unittest(12)
 ZEEK_IMAGE=zeek/zeek:8.0.9 tests/run_tests.sh    # Zeek 8.0으로 btest
 ```
 

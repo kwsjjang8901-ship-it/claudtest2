@@ -5,3 +5,5 @@
 @load ./names
 @load ./software
 @load ./services
+@load ./ldap
+@load ./server_names

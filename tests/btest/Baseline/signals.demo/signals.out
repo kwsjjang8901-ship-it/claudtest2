@@ -78,6 +78,14 @@
 10.20.5.13	user_account	test-f7dfbc3fe9\\test	ntlm	70
 10.20.5.13	domain	test-f7dfbc3fe9	ntlm	60
 10.20.5.13	os_hint	windows nt 6.1 build 7600	ntlm	80
+10.20.5.11	hostname	branch-pc11	ldap	85
+10.20.5.11	domain	corp.local	ldap	85
+10.20.5.11	fqdn	branch-pc11.corp.local	ldap	80
+10.20.5.11	machine_account	corp.local\\branch-pc11$	ldap	85
+10.10.1.20	dns_name	portal.corp.local	tls	50
+10.10.1.20	service	tcp/80	service	90
+10.10.1.20	dns_name	intranet.corp.local	http	50
+10.10.1.20	service	tcp/80	service	90
 10.10.1.30	service	tcp/445	service	90
 10.10.1.10	mac	00:50:56:aa:10:10	conn	40
 10.10.0.120	mac	02:1a:11:fe:dc:ba	dhcp	90

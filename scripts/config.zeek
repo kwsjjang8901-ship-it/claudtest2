@@ -33,6 +33,8 @@ export {
 	option enable_http_ua = T;
 	option enable_ssh = T;
 	option enable_services = T;
+	option enable_ldap = T;         ##< CLDAP/LDAP Netlogon ping (DC 찾기) -> hostname, domain
+	option enable_server_names = T; ##< SMB 공유 경로, TLS SNI, HTTP Host -> 서버 dns_name
 
 	## 잘 알려진 서비스 포트. TCP는 연결 성립만으로, UDP는 분석기 확인 시 기록하며
 	## 값은 "tcp/445"처럼 proto/port 로 남긴다(역할 판정은 Manager에서 포트 기준).
