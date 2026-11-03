@@ -68,7 +68,10 @@ A-74eaea43f4  IP+시간(낮음)          -                    10.20.5.11       -
 | `fqdn`, `domain` | dhcp, kerberos, ntlm, nbns, smb | 보조 |
 | `os_hint`, `software` | ntlm(버전), smb(native OS), ssh 배너, http User-Agent, dhcp vendor | OS 추정 |
 | `service` | 연결 성립/프로토콜 확인 | 역할 추정 (DC, DNS, 웹, DB, 프린터 등) |
-| `dns_name` | dns(A/PTR 응답), smb(공유 경로), tls(SNI), http(Host) | 서버 표시 이름 (별칭일 수 있어 식별 키 아님) |
+| `dns_name` | dns(A/PTR 응답), smb(공유 경로), tls(SNI), http(Host), x509(서버 인증서) | 서버 표시 이름 (별칭일 수 있어 식별 키 아님) |
+| `device` | syslog(ESXi, Cisco ASA/IOS, FortiGate, UTM), x509(AhnLab MDS/EPP, VMware 등) | 장비·제품 종류 → 리포트 역할 |
+| `security_agent` | ahnlab(User-Agent `v3inet4/…`, `MeDCore`) | 단말의 AhnLab 제품 통신 |
+| `ssh_host_key` | ssh | SSH 서버 호스트 키 지문 (참고 정보) |
 | `user_account`, `dhcp_vendor_class`, `dhcp_fingerprint` | kerberos/ntlm/rdp, dhcp | 참고 정보 (식별 키 아님) |
 
 신호 정의, 신뢰도 기준, 판정 알고리즘, 한계는 [docs/DESIGN.md](docs/DESIGN.md)에, 검증·개선 계획은 [docs/PLAN.md](docs/PLAN.md)에 있습니다.
@@ -76,10 +79,11 @@ A-74eaea43f4  IP+시간(낮음)          -                    10.20.5.11       -
 ## 테스트
 
 ```bash
-tests/run_tests.sh                               # Zeek btest(15) + 리졸버 unittest(19)
+tests/run_tests.sh                               # Zeek btest(17) + 리졸버 unittest(20)
 ZEEK_IMAGE=zeek/zeek:8.0.9 tests/run_tests.sh    # Zeek 8.0으로 btest
 ```
 
+- `tests/pcaps/extras.pcap`: 장비·제품 신호(syslog, User-Agent, 서버 인증서) 합성 pcap. `tests/gen_extra_pcaps.py`로 다시 만들 수 있습니다.
 - `tests/pcaps/demo.pcap`: 합성 데모. `tests/gen_demo_pcap.py`로 다시 만들 수 있습니다(`pip install scapy`).
 - `tests/pcaps/zeek/`: Zeek 프로젝트 테스트 trace 일부(BSD 라이선스, zeek/zeek v9.0.1 `testing/btest/Traces`).
 

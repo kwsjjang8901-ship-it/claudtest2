@@ -2,7 +2,7 @@
       8 arp
      29 dhcp
       1 http
-      5 http_ua
+      6 http_ua
       7 kerberos
       8 ldap
       1 llmnr

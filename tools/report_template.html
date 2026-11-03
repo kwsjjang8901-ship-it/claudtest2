@@ -141,7 +141,8 @@ const qCards = [["전체 식별률", q.overall.identified_pct + "%", `${q.overal
 if (q.active_passive) {
   const ap = q.active_passive;
   qCards.push(["능동 IP 식별률", ap.active.identified_pct + "%", `${ap.active.identified} / ${ap.active.n}`],
-    ["수동 IP 식별률", ap.passive.identified_pct + "%", `${ap.passive.identified} / ${ap.passive.n}`]);
+    ["수동 IP 식별률", ap.passive.identified_pct + "%", `${ap.passive.identified} / ${ap.passive.n}`],
+    ["능동 IP 중 AhnLab 제품 통신", ap.active.agent_pct + "%", `${ap.active.agent} / ${ap.active.n}`]);
 }
 $("q-cards").innerHTML = qCards.map(([k, v, d]) => `<div class="card"><div class="v">${esc(v)}</div><div class="k">${esc(k)} · ${esc(d)}</div></div>`).join("");
 $("q-curve").innerHTML = bars(q.curve.map(([label, seen, idn, p]) => [`${label}`, `${idn}/${seen}`, p]));
@@ -155,6 +156,8 @@ for (const [mac, ips] of Object.entries(D.shared_macs))
   notes.push(`<li><b class="mono">${esc(mac)}</b> 가 conn에서 IP ${ips.length}개에 보임 → 게이트웨이/라우터 MAC으로 보고 식별 키에서 제외 <span class="muted mono">(${esc(ips.slice(0, 6).join(", "))}${ips.length > 6 ? " …" : ""})</span></li>`);
 for (const [ip, ts] of Object.entries(D.reused_ips))
   notes.push(`<li><b class="mono">${esc(ip)}</b> 의 점유 단말이 바뀜 (${esc(ts.join(", "))}) → 자산을 나눔</li>`);
+for (const [k, ids] of Object.entries(D.shared_ssh_keys || {}))
+  notes.push(`<li>SSH 호스트 키 <b class="mono">${esc(k.slice(0, 20))}…</b> 를 자산 ${ids.length}개가 공유 → 템플릿 복제 VM 의심 (호스트 키를 식별 키로 쓰지 않는 근거)</li>`);
 for (const [name, ids] of Object.entries(D.dup_hostnames || {}))
   notes.push(`<li>호스트명 <b class="mono">${esc(name)}</b> 이 자산 ${ids.length}개에 있음 → MAC이 달라 합치지 않음 (VM 복제/이미지 배포 의심)</li>`);
 const cap = st.capture;
@@ -171,7 +174,7 @@ D.assets.forEach((a) => {
   a.mac = a.macs[0] || "";
   a.roles_text = a.roles.join(", ");
   a.search = [a.hostname, a.fqdn, a.domain, a.os, a.roles_text, a.ips_text, a.macs, a.machine_accounts, a.users,
-    a.dns_names, a.hostnames, a.dhcp_client_ids, a.via_gateway_mac, a.id_value, a.asset_id].flat().join(" ").toLowerCase();
+    a.dns_names, a.hostnames, a.devices, a.security_agents, a.dhcp_client_ids, a.via_gateway_mac, a.id_value, a.asset_id].flat().join(" ").toLowerCase();
 });
 
 let sortKey = null, sortDir = 1, openId = null;
@@ -192,7 +195,7 @@ function detail(a) {
     ${row("IP 점유 구간", a.ips.map((i) => `${i.ip}  ${i.first} ~ ${i.last}`))}
     ${row("호스트명 후보", a.hostnames)}${row("FQDN", a.fqdn)}${row("머신 계정", a.machine_accounts)}
     ${row("DHCP client-id", a.dhcp_client_ids)}${row("MAC", a.macs)}${row("게이트웨이 경유 MAC", a.via_gateway_mac)}
-    ${row("OS 후보", a.os_hints)}${row("서비스", a.services)}${row("사용자 계정", a.users)}
+    ${row("OS 후보", a.os_hints)}${row("장비 종류", a.devices)}${row("AhnLab 제품", a.security_agents)}${row("SSH 호스트 키", a.ssh_host_keys)}${row("서비스", a.services)}${row("사용자 계정", a.users)}
     ${row("DNS 이름", a.dns_names)}${row("소프트웨어", a.software)}
     ${row("DHCP vendor", a.dhcp_vendor_class)}${row("DHCP 지문", a.dhcp_fingerprint)}
     ${row("신호 출처", Object.entries(a.sources).map(([k, v]) => `${k}:${v}`).join(" "))}

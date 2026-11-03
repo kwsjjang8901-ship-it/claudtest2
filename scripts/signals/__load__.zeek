@@ -7,3 +7,5 @@
 @load ./services
 @load ./ldap
 @load ./server_names
+@load ./syslog
+@load ./x509

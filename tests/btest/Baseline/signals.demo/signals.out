@@ -85,6 +85,7 @@
 10.10.1.20	dns_name	portal.corp.local	tls	50
 10.10.1.20	service	tcp/80	service	90
 10.10.1.20	dns_name	intranet.corp.local	http	50
+10.10.0.101	software	ua:curl/8.5.0	http_ua	50
 10.20.5.12	hostname	branch-pc12	ldap	85
 10.20.5.12	domain	corp.local	ldap	85
 10.20.5.12	fqdn	branch-pc12.corp.local	ldap	80

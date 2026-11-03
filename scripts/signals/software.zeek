@@ -1,4 +1,10 @@
-##! OS/SW 추정 신호: HTTP User-Agent, SSH 배너, SMB1 native OS, RDP 클라이언트 이름.
+##! OS/SW 추정 신호: HTTP User-Agent, SSH 배너·호스트 키, SMB1 native OS, RDP 클라이언트 이름.
+##!
+##! User-Agent
+##!   - 브라우저(Mozilla/...)  -> OS 계열만 (os_hint)
+##!   - 그 밖의 프로그램        -> 제품 토큰 (software "ua:git/2.52.0")
+##!   - AhnLab 제품            -> security_agent ("ahnlab:V3ES90ASD/5.6.0.55", "ahnlab:MeDCore")
+##!     MeDCore 요청 파라미터 값은 의미가 확인되지 않아 기록하지 않는다.
 
 @load base/protocols/http
 @load base/protocols/ssh
@@ -43,7 +49,8 @@ function ua_os(ua: string): string
 		return "linux(ubuntu)";
 	if ( /Linux/ in ua )
 		return "linux";
-	if ( /^Microsoft-(CryptoAPI|WNS|Delivery-Optimization)\// in ua )
+	if ( /^Microsoft-(CryptoAPI|WNS|Delivery-Optimization)\// in ua ||
+	     /^(Microsoft NCSI|WinHttp-Autoproxy-Service)/ in ua )
 		return "windows";
 
 	return "";
@@ -66,12 +73,53 @@ function ssh_os(banner: string): string
 	return "";
 	}
 
+## AhnLab 제품 User-Agent -> "ahnlab:<제품코드>/<버전>". 아니면 빈 문자열.
+function ahnlab_agent(ua: string): string
+	{
+	# v3inet4/5.6.0.55/V3ES90ASD/
+	if ( /^v3inet[0-9]*\/[0-9.]+\/[A-Za-z0-9_]+/ in ua )
+		{
+		local parts = split_string(ua, /\//);
+		return fmt("ahnlab:%s/%s", parts[2], parts[1]);
+		}
+
+	if ( ua == "MeDCore" )
+		return "ahnlab:MeDCore";
+
+	return "";
+	}
+
+## 브라우저가 아닌 프로그램의 제품 토큰("git/2.52.0 (...)" -> "git/2.52.0").
+function ua_product(ua: string): string
+	{
+	if ( /^Mozilla\// in ua || ua == "" )
+		return "";
+
+	# "Microsoft NCSI"처럼 이름에 공백이 있는 경우는 통째로 쓴다(최대 48자).
+	local tok = /^Microsoft / in ua ? ua : split_string1(ua, / /)[0];
+	return "ua:" + tok[:48];
+	}
+
 event http_header(c: connection, is_orig: bool, original_name: string, name: string, value: string)
 	{
-	if ( ! enable_http_ua || ! is_orig || name != "USER-AGENT" )
+	if ( ! is_orig || name != "USER-AGENT" )
 		return;
 
-	emit(c$id$orig_h, OS_HINT, ua_os(value), "http_ua", 50, c$uid);
+	local ip = c$id$orig_h;
+	local agent = ahnlab_agent(value);
+
+	if ( agent != "" )
+		{
+		if ( enable_agents )
+			emit(ip, SECURITY_AGENT, agent, "ahnlab", 80, c$uid);
+		return;
+		}
+
+	if ( ! enable_http_ua )
+		return;
+
+	emit(ip, OS_HINT, ua_os(value), "http_ua", 50, c$uid);
+	emit(ip, SOFTWARE, ua_product(value), "http_ua", 50, c$uid);
 	}
 
 function ssh_banner(ip: addr, version: string, uid: string)
@@ -91,6 +139,15 @@ event ssh_client_version(c: connection, version: string)
 event ssh_server_version(c: connection, version: string)
 	{
 	ssh_banner(c$id$resp_h, version, c$uid);
+	}
+
+event ssh_server_host_key(c: connection, hash: string)
+	{
+	if ( ! enable_ssh_host_key )
+		return;
+
+	# 서버마다 고정된 키 지문. 템플릿 복제 VM은 키를 공유할 수 있어 식별 키가 아닌 참고 정보로 둔다.
+	emit(c$id$resp_h, SSH_HOST_KEY, to_lower(hash), "ssh", 80, c$uid);
 	}
 
 event smb1_session_setup_andx_request(c: connection, hdr: SMB1::Header, request: SMB1::SessionSetupAndXRequest)

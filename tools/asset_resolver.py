@@ -41,6 +41,15 @@ KEY_LABEL = {
 }
 KEY_CONFIDENCE = {"machine_account": "높음", "dhcp_client_id": "높음", "mac": "중간",
                   "hostname": "중간", "ip": "낮음"}
+# 센서 device 신호 -> 표시용 장비/제품 역할
+DEVICE_LABEL = {
+    "vmware-esxi": "VMware ESXi", "vmware": "VMware(vCenter/ESXi)",
+    "cisco-asa": "Cisco ASA 방화벽", "cisco-ftd": "Cisco FTD 방화벽", "cisco-ios": "Cisco 네트워크 장비",
+    "fortinet-fortigate": "FortiGate 방화벽", "fortinet": "Fortinet 장비", "paloalto": "Palo Alto 방화벽",
+    "utm": "UTM 장비", "ahnlab-mds": "AhnLab MDS", "ahnlab-epp": "AhnLab EPP 서버",
+    "dell-idrac": "Dell iDRAC", "hpe-ilo": "HPE iLO", "synology": "Synology NAS",
+}
+
 # 구체적인 정보를 주는 출처 우선 (DHCP vendor class는 OS 계열만 알려줌)
 OS_SOURCE_RANK = {"ntlm": 5, "smb": 4, "ssh": 3, "http_ua": 2, "dhcp": 1}
 
@@ -58,6 +67,7 @@ ROLE_RULES = [
     ("원격관리(WinRM/VNC)", lambda p: {"5985", "5986", "5900"} & p),
     ("프린터", lambda p: {"9100", "515", "631"} & p),
     ("SNMP 장비", lambda p: "161" in p),
+    ("로그 수집 서버", lambda p: "514" in p),
 ]
 
 
@@ -298,10 +308,15 @@ def resolve(sigs, shared_threshold=2, max_idle=86400):
     assets = [summarize(ts, shared_macs, domain_names) for ts in groups.values()]
     assets.sort(key=lambda a: (KEY_PRIORITY.index(a["id_type"]), a["hostname"] or "~", a["ips"][0]["ip"]))
     by_name = defaultdict(list)
+    by_ssh_key = defaultdict(list)
     for a in assets:
         if a["hostname"]:
             by_name[host_key(a["hostname"])].append(a["asset_id"])
+        for k in a["ssh_host_keys"]:
+            by_ssh_key[k].append(a["asset_id"])
     return {
+        # 같은 SSH 호스트 키를 쓰는 서로 다른 자산: 템플릿 복제 VM 의심(호스트 키를 식별 키로 쓸 수 있는지 판단 근거)
+        "shared_ssh_keys": {k: v for k, v in sorted(by_ssh_key.items()) if len(v) > 1},
         "dup_hostnames": {k: v for k, v in sorted(by_name.items()) if len(v) > 1},
         "assets": assets,
         "shared_macs": shared_macs,
@@ -367,7 +382,8 @@ def summarize(tenancies, shared_macs, domain_names):
         parts = svc.split("/")
         if len(parts) >= 2:
             ports.add(parts[1])
-    roles = [name for name, rule in ROLE_RULES if rule(ports)]
+    roles = [DEVICE_LABEL.get(d, d) for d in sorted(vals.get("device", {}))]
+    roles += [name for name, rule in ROLE_RULES if rule(ports)]
     if any(m in shared_macs for m in vals.get("mac", {})):
         roles.insert(0, "게이트웨이/라우터(추정)")
     # 프록시 포트를 열었거나, 서로 다른 서버 이름이 센서 상한(max_server_names)까지 몰린 IP
@@ -420,6 +436,9 @@ def summarize(tenancies, shared_macs, domain_names):
         "services": sorted(vals.get("service", {}), key=lambda s: (s.split("/")[0], int(s.split("/")[1]) if s.split("/")[1].isdigit() else 0)),
         "users": sorted(vals.get("user_account", {})),
         "software": sorted(vals.get("software", {})),
+        "devices": sorted(vals.get("device", {})),
+        "security_agents": sorted(vals.get("security_agent", {})),
+        "ssh_host_keys": sorted(vals.get("ssh_host_key", {})),
         "dhcp_vendor_class": best(vals.get("dhcp_vendor_class")),
         "dhcp_fingerprint": best(vals.get("dhcp_fingerprint")),
         "ips": ips,
@@ -435,7 +454,8 @@ def summarize(tenancies, shared_macs, domain_names):
 
 CSV_FIELDS = ["asset_id", "id_type", "id_value", "confidence", "display_name", "hostname", "fqdn", "domain",
               "os", "roles", "macs", "ips", "machine_accounts", "dhcp_client_ids", "users", "services",
-              "dns_names", "via_gateway_mac", "first_seen", "last_seen", "signal_count", "sources"]
+              "dns_names", "devices", "security_agents", "ssh_host_keys", "via_gateway_mac",
+              "first_seen", "last_seen", "signal_count", "sources"]
 
 
 def ip_text(a, tz):
@@ -576,6 +596,8 @@ def id_quality(assets, active, t_start, t_end):
         act = [a for a in assets if any(i["ip"] in active for i in a["ips"])]
         pas = [a for a in assets if not any(i["ip"] in active for i in a["ips"])]
         split = {"active": rates(act), "passive": rates(pas)}
+        agents = sum(1 for a in act if a["security_agents"])
+        split["active"].update(agent=agents, agent_pct=pct(agents, len(act)))
 
     return {"overall": rates(assets), "tti": tti_rows, "curve": curve,
             "subnets": nets[:20], "subnet_total": len(nets), "active_passive": split}
@@ -600,6 +622,8 @@ def stats(result, sigs, zeek_dir, signal_path):
         ("도메인", cov(lambda a: a["domain"])),
         ("OS 추정", cov(lambda a: a["os"])),
         ("역할 추정", cov(lambda a: a["roles"])),
+        ("장비 종류", cov(lambda a: a["devices"])),
+        ("AhnLab 제품", cov(lambda a: a["security_agents"])),
     ]
     health, active = scan_conn_log(zeek_dir)
     vol = None
@@ -660,6 +684,8 @@ def write_report(path, result, st, tz, src):
             r = q["active_passive"][key]
             p("  %s: %d개 중 식별 %d (%.1f%%), 신뢰 식별 %d (%.1f%%)" % (
                 pad(label, 20), r["n"], r["identified"], r["identified_pct"], r["trusted"], r["trusted_pct"]))
+        r = q["active_passive"]["active"]
+        p("  %s: %d개 중 %d (%.1f%%)" % (pad("능동 IP 중 AhnLab 제품 통신", 20), r["n"], r["agent"], r["agent_pct"]))
     p("  캡처 시간별 식별률 (그 시점까지 관측된 자산 기준):")
     for label, seen, idn, pc in q["curve"]:
         p("    %s 관측 %5d  식별 %5d  %5.1f%%  %s" % (pad(label, 16), seen, idn, pc, "#" * int(pc / 5)))
@@ -687,6 +713,11 @@ def write_report(path, result, st, tz, src):
         p("[IP 재사용 (점유 단말 변경)]")
         for ip, splits in result["reused_ips"].items():
             p("  %s  변경 시각: %s" % (ip, ", ".join(fmt_ts(t, tz) for t in splits)))
+        p("")
+    if result["shared_ssh_keys"]:
+        p("[같은 SSH 호스트 키, 다른 자산 (템플릿 복제 VM 의심)]")
+        for k, ids in list(result["shared_ssh_keys"].items())[:20]:
+            p("  %s  자산 %d개: %s" % (k[:20], len(ids), ", ".join(ids[:5])))
         p("")
     if result["dup_hostnames"]:
         p("[같은 호스트명, 다른 자산 (VM 복제/이미지 배포 또는 이름 재사용 의심)]")
@@ -772,6 +803,7 @@ def write_html(path, result, st, tz, src, sigs):
         "shared_macs": result["shared_macs"],
         "reused_ips": {ip: [fmt_ts(t, tz) for t in v] for ip, v in result["reused_ips"].items()},
         "dup_hostnames": result["dup_hostnames"],
+        "shared_ssh_keys": result["shared_ssh_keys"],
         "assets": [dict(a, ips_text=ip_text(a, tz), id_label=KEY_LABEL[a["id_type"]],
                         first_seen=fmt_ts(a["first_seen"], tz), last_seen=fmt_ts(a["last_seen"], tz),
                         ips=[dict(i, first=fmt_ts(i["first"], tz), last=fmt_ts(i["last"], tz)) for i in a["ips"]])

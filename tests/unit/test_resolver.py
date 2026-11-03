@@ -192,6 +192,28 @@ class TestResolver(unittest.TestCase):
         self.assertEqual(list(r["dup_hostnames"]), ["desktop-1"])
 
 
+class TestDevicesAgents(unittest.TestCase):
+    def test_device_roles_agents_and_shared_ssh_keys(self):
+        r = resolve([
+            sig(0, "10.30.1.20", "device", "vmware-esxi", "syslog", 80),
+            sig(0, "10.30.1.20", "hostname", "esx01", "syslog", 70),
+            sig(0, "10.30.0.5", "service", "udp/514", "syslog"),
+            sig(0, "10.30.4.10", "device", "ahnlab-mds", "x509", 70),
+            sig(0, "10.30.3.11", "security_agent", "ahnlab:V3ES90ASD/5.6.0.55", "ahnlab", 80),
+            sig(0, "10.30.5.1", "ssh_host_key", "aa:bb", "ssh", 80),
+            sig(0, "10.30.5.2", "ssh_host_key", "aa:bb", "ssh", 80),
+        ])
+        by_ip = {a["ips"][0]["ip"]: a for a in r["assets"]}
+        self.assertEqual(by_ip["10.30.1.20"]["roles"][0], "VMware ESXi")
+        self.assertIn("로그 수집 서버", by_ip["10.30.0.5"]["roles"])
+        self.assertEqual(by_ip["10.30.4.10"]["roles"], ["AhnLab MDS"])
+        self.assertEqual(by_ip["10.30.3.11"]["security_agents"], ["ahnlab:V3ES90ASD/5.6.0.55"])
+        # 호스트 키는 식별 키가 아니므로 두 서버는 따로 남고, 공유 사실만 보고한다
+        self.assertEqual(len(r["shared_ssh_keys"]["aa:bb"]), 2)
+        q = ar.id_quality(r["assets"], {"10.30.3.11", "10.30.1.20"}, 0, 60)
+        self.assertEqual((q["active_passive"]["active"]["agent"], q["active_passive"]["active"]["agent_pct"]), (1, 50.0))
+
+
 class TestIdQuality(unittest.TestCase):
     def test_rates_curve_and_active_split(self):
         r = resolve([

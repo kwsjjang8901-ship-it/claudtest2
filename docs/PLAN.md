@@ -84,13 +84,26 @@
 
 ## 3. 개선 계획 (우선순위)
 
+### P0. 기존 pcap 검토로 반영 완료 (2026-11-03)
+
+eth5 pcap 2개를 다시 검토해 지금 미러 구간에서도 효과가 있는 신호를 추가했다.
+
+| 항목 | eth5_proxy (29초) | eth5_proxy_1 (0.22초) |
+|---|---|---|
+| AhnLab 제품 통신(security_agent) | 9대 (능동 IP 44개 중 20.5%) | 11대 |
+| 장비 종류(device) | AhnLab MDS 5대, VMware 1대 | ESXi(`op-220`), Cisco ASA, UTM, VMware 2대, AhnLab EPP 1대 |
+| 서버 인증서 이름 | `photon-machine.qa.ad.ahnlab.com` 등 | — |
+| 비브라우저 UA | git, Java, curl, Apache-HttpClient, NCSI 등 | |
+| SSH 호스트 키 | 이 pcap들에는 SSH 핸드셰이크 없음 (Zeek 테스트 pcap으로 검증) | |
+
 ### P1. PC 식별 신호 확대 (V1 결과와 무관하게 효과 있음)
 
 | 항목 | 내용 | 효과 / 조건 |
 |---|---|---|
-| DNS 동적 업데이트 | PC가 DC의 DNS에 자기 A 레코드를 등록하는 UPDATE 메시지에서 호스트명·도메인·IP | 부팅, IP 변경, 24시간 주기. DC 구간 필요 |
-| Kerberos 사용자 로그온 연계 | AS-REQ 사용자 계정 + 같은 IP의 머신 계정 → "최근 로그온 사용자" 표시 | 자산 컨텍스트(원페이저 목적) 보강 |
-| 조사: SMB2 클라이언트 GUID | SMB2 NEGOTIATE의 ClientGuid는 PC별 고정값이라 라우팅 구간 식별 키 후보. Zeek 이벤트로 노출되는지 조사 | 라우팅 구간에서도 가능할 수 있음 |
+| DNS 동적 업데이트 | PC가 DC의 DNS에 자기 A 레코드를 등록하는 UPDATE 메시지에서 호스트명·도메인·IP | 부팅, IP 변경, 24시간 주기. DC 구간 필요. **Zeek 9.x만 파싱(8.0.9는 `DNS_unknown_opcode`로 버림) — 확인 완료, 구현 대기** |
+| Kerberos 사용자 로그온 연계 | AS-REQ 사용자 계정 + 같은 IP의 머신 계정 → "최근 로그온 사용자" 표시 | 자산 컨텍스트(원페이저 목적) 보강. **구현 대기** |
+| MeDCore 파라미터 | `gms.ahnlab.com /jk?c=&p=&k=` 값 중 단말 고정 ID가 있으면 라우팅 구간 강한 식별 키 | **제품팀 확인 필요** |
+| SMB2 클라이언트 GUID | SMB2 NEGOTIATE의 ClientGuid. Zeek 이벤트로는 노출되지 않지만 시그니처로 추출하는 시제품이 8.0.9/9.0.1에서 동작(오프셋 교차 확인 완료) | **PC별 고정·고유 여부(재부팅, 복제 VM) 실측 필요 — 구현 대기** |
 | ~~프록시 인증~~ | 운영 프록시가 인증을 쓰지 않음을 확인 | 보류 |
 
 ### P2. 판정 정확도 (V2·V3 결과 반영)

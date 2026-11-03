@@ -35,6 +35,10 @@ export {
 	option enable_services = T;
 	option enable_ldap = T;         ##< CLDAP/LDAP Netlogon ping (DC 찾기) -> hostname, domain
 	option enable_server_names = T; ##< SMB 공유 경로, TLS SNI, HTTP Host -> 서버 dns_name
+	option enable_agents = T;       ##< AhnLab 제품 통신(User-Agent) -> security_agent
+	option enable_syslog = T;       ##< syslog 송신 장비 -> hostname, device
+	option enable_x509 = T;         ##< 사내 서버 인증서 -> dns_name, device
+	option enable_ssh_host_key = T; ##< SSH 서버 호스트 키 지문 -> ssh_host_key
 
 	## 잘 알려진 서비스 포트. TCP는 연결 성립만으로, UDP는 분석기 확인 시 기록하며
 	## 값은 "tcp/445"처럼 proto/port 로 남긴다(역할 판정은 Manager에서 포트 기준).

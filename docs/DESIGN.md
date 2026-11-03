@@ -47,7 +47,14 @@
 | service | service / dhcp | 90 | TCP 연결 성립(SYN-ACK) 또는 응답이 있는 연결에서 분석기가 프로토콜을 확인 |
 | machine_account, hostname, domain, fqdn | ldap | 85 / 80 (`User` 없을 때 `Host$` 머신 계정 75) | CLDAP Netlogon ping(DC 찾기) 필터의 `Host`, `DnsDomain`, `User`. 라우팅 구간에서도 보임 |
 | dns_name | dns | 40-50 | 일반 DNS A/PTR 응답. 별칭/로드밸런서일 수 있어 **식별 키로 쓰지 않음** |
-| dns_name | smb / tls / http | 50 | 클라이언트가 서버 접속에 쓴 이름(공유 경로, SNI, Host). 서버 표시용. 프록시 요청(CONNECT, 절대 URL)은 제외, IP당 `max_server_names`(20)개까지 |
+| dns_name | smb / tls / http / x509 | 50 | 클라이언트가 서버 접속에 쓴 이름(공유 경로, SNI, Host)과 서버 인증서 CN/SAN의 호스트 이름. 서버 표시용. 프록시 요청(CONNECT, 절대 URL)은 제외, IP당 `max_server_names`(20)개까지 |
+| hostname, fqdn | syslog | 70 | syslog 헤더의 호스트명(RFC 5424, ISO 시각+호스트명(ESXi), RFC 3164, FortiGate `devname`). 시각·IP·태그는 제외 |
+| device | syslog | 80 | 제품 고유 태그: `%ASA-`(cisco-asa), `%FTD-`, `%XXX-n-YYY:`(cisco-ios), `Vpxa:`/`Hostd:`(vmware-esxi), `devid=FG`(fortinet-fortigate), 백틱 구분 `UTM_`(utm) |
+| service | syslog | 90 | syslog 수신 쪽 `udp/514` → 리졸버 역할 "로그 수집 서버" (UDP라 응답 패킷이 없어 일반 서비스 신호로는 안 잡힘) |
+| device | x509 | 70 | 서버 인증서(leaf) 주체/발급자: `CN=AhnLab MDS`, `CN=AhnLab EPP`, VMware, Fortinet, Palo Alto, iDRAC, iLO, Synology. TLS 1.3은 인증서가 암호화되어 안 보임 |
+| security_agent | ahnlab | 80 | AhnLab 제품 통신 User-Agent: `v3inet4/<버전>/<제품코드>/` → `ahnlab:<제품코드>/<버전>`, `MeDCore` → `ahnlab:MeDCore`. MeDCore 요청 파라미터 값은 의미 미확인으로 기록하지 않음 |
+| software | http_ua | 50 | 브라우저가 아닌 프로그램의 User-Agent 제품 토큰(`ua:git/2.52.0`, `ua:Microsoft NCSI` 등). `Microsoft NCSI`, `WinHttp-Autoproxy-Service`는 os_hint windows도 기록 |
+| ssh_host_key | ssh | 80 | SSH 서버 호스트 키 지문. 템플릿 복제 VM은 키를 공유할 수 있어 식별 키가 아닌 참고 정보(리포트에 공유 현황 표시). Zeek 8.0.9는 DH group18 키 교환의 호스트 키를 꺼내지 못함 |
 | user_account | kerberos / ntlm / rdp | 70 / 70 / 50 | 로그인 사용자 (참고 정보) |
 
 신뢰도 값은 PoC 초기값입니다. 운영 pcap 실측 후 SRS에 반영해 조정합니다.
@@ -89,7 +96,7 @@
 |---|---|---|
 | `AssetID::asset_nets` | `{}` | 자산 대역. `option`이라 Config 프레임워크로 운영 중 변경 가능 |
 | `AssetID::suppress_interval` | `1hr` | 중복 억제 기간 (`&redef`) |
-| `AssetID::enable_*` | `T` | 신호 소스별 on/off (`dhcp, arp, conn_mac, kerberos, ntlm, ldap, nbns, llmnr, mdns, dns, server_names, rdp, smb, http_ua, ssh, services`) |
+| `AssetID::enable_*` | `T` | 신호 소스별 on/off (`dhcp, arp, conn_mac, kerberos, ntlm, ldap, nbns, llmnr, mdns, dns, server_names, rdp, smb, http_ua, ssh, services, agents, syslog, x509, ssh_host_key`) |
 | `AssetID::service_ports` | 주요 포트 | 포트만으로 서비스로 인정할 목록 |
 | `AssetID::max_server_names` | 20 | IP당 서버 이름(SMB/TLS/HTTP) 기록 상한. 프록시·로드밸런서 로그 폭증 방지 |
 | `AssetID::ignore_hostnames` | localhost 등 | 식별에 쓸 수 없는 일반 이름 |
