@@ -125,7 +125,37 @@ class TestResolver(unittest.TestCase):
         a = r["assets"][0]
         self.assertIn("도메인 컨트롤러", a["roles"])
         self.assertIn("DNS 서버", a["roles"])
-        self.assertTrue(a["os"].startswith("Windows 11/Server 2022+"))
+        self.assertEqual(a["os"], "Windows Server 2022 (build 20348)")
+
+    def test_ntlm_build_names(self):
+        f = ar.ntlm_os_name
+        self.assertEqual(f("windows nt 10.0 build 19045"), "Windows 10 22H2 (build 19045)")
+        self.assertEqual(f("windows nt 10.0 build 22631"), "Windows 11 23H2 (build 22631)")
+        self.assertEqual(f("windows nt 10.0 build 26100"), "Windows 11 24H2 (build 26100)")
+        self.assertEqual(f("windows nt 10.0 build 26100", server=True), "Windows Server 2025 (build 26100)")
+        self.assertEqual(f("windows nt 10.0 build 14393", server=True), "Windows Server 2016 (build 14393)")
+        self.assertEqual(f("windows nt 10.0 build 20348"), "Windows Server 2022 (build 20348)")
+        self.assertEqual(f("windows nt 10.0 build 27000"), "Windows 11 (build 27000)")
+        self.assertEqual(f("windows nt 6.1 build 7601"), "Windows 7/Server 2008 R2 (build 7601)")
+
+    def test_shared_build_resolved_by_role(self):
+        pc = [sig(0, "10.0.0.5", "os_hint", "windows nt 10.0 build 26100", "ntlm", 80),
+              sig(0, "10.0.0.5", "service", "tcp/445", "service")]   # 파일 공유만 있는 PC
+        dc = [sig(0, "10.0.0.6", "os_hint", "windows nt 10.0 build 26100", "ntlm", 80),
+              sig(0, "10.0.0.6", "service", "tcp/88", "service"), sig(0, "10.0.0.6", "service", "tcp/389", "service")]
+        os_by_ip = {a["ips"][0]["ip"]: a["os"] for a in resolve(pc + dc)["assets"]}
+        self.assertEqual(os_by_ip["10.0.0.5"], "Windows 11 24H2 (build 26100)")
+        self.assertEqual(os_by_ip["10.0.0.6"], "Windows Server 2025 (build 26100)")
+
+    def test_default_hostnames_decide_shared_build(self):
+        srv = [sig(0, "10.0.0.7", "os_hint", "windows nt 10.0 build 17763", "ntlm", 80),
+               sig(0, "10.0.0.7", "hostname", "win-rmkukhvf5i7", "ntlm", 85)]
+        pc = [sig(0, "10.0.0.8", "os_hint", "windows nt 10.0 build 26100", "ntlm", 80),
+              sig(0, "10.0.0.8", "hostname", "desktop-j2rjh6s", "ntlm", 85),
+              sig(0, "10.0.0.8", "service", "tcp/80", "service")]          # 웹 서비스가 있어도 PC 기본 이름이면 PC
+        os_by_ip = {a["ips"][0]["ip"]: a["os"] for a in resolve(srv + pc)["assets"]}
+        self.assertEqual(os_by_ip["10.0.0.7"], "Windows Server 2019 (build 17763)")
+        self.assertEqual(os_by_ip["10.0.0.8"], "Windows 11 24H2 (build 26100)")
 
     def test_conn_only_mac_is_low_confidence(self):
         r = resolve([

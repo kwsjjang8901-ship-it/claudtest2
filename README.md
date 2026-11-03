@@ -76,7 +76,7 @@ A-74eaea43f4  IP+시간(낮음)          -                    10.20.5.11       -
 ## 테스트
 
 ```bash
-tests/run_tests.sh                               # Zeek btest(15) + 리졸버 unittest(16)
+tests/run_tests.sh                               # Zeek btest(15) + 리졸버 unittest(20)
 ZEEK_IMAGE=zeek/zeek:8.0.9 tests/run_tests.sh    # Zeek 8.0으로 btest
 ```
 

@@ -106,13 +106,44 @@ def machine_key(v):
     return v
 
 
-def ntlm_os_name(v):
+# Windows 10.x 빌드 번호 -> 버전. 클라이언트와 서버가 같은 빌드를 쓰는 경우는 SERVER_BUILDS로 구분.
+CLIENT_BUILDS = {
+    10240: "Windows 10 1507", 10586: "Windows 10 1511", 14393: "Windows 10 1607",
+    15063: "Windows 10 1703", 16299: "Windows 10 1709", 17134: "Windows 10 1803",
+    17763: "Windows 10 1809", 18362: "Windows 10 1903", 18363: "Windows 10 1909",
+    19041: "Windows 10 2004", 19042: "Windows 10 20H2", 19043: "Windows 10 21H1",
+    19044: "Windows 10 21H2", 19045: "Windows 10 22H2",
+    22000: "Windows 11 21H2", 22621: "Windows 11 22H2", 22631: "Windows 11 23H2",
+    26100: "Windows 11 24H2", 26200: "Windows 11 25H2",
+}
+SERVER_BUILDS = {
+    14393: "Windows Server 2016", 17763: "Windows Server 2019", 20348: "Windows Server 2022",
+    26100: "Windows Server 2025",
+}
+# 이 역할이 있으면 클라이언트/서버 공용 빌드를 서버 OS로 본다.
+# (파일 공유·RDP·SSH는 PC에서도 흔해 근거로 쓰지 않는다)
+# Windows 설치 시 기본 호스트명: 서버 WIN-XXXXXXXXXXX(11자), PC DESKTOP-/LAPTOP-XXXXXXX
+SERVER_DEFAULT_NAME = re.compile(r"^win-[0-9a-z]{11}$")
+CLIENT_DEFAULT_NAME = re.compile(r"^(desktop|laptop)-[0-9a-z]{7}$")
+SERVER_ROLES = {"도메인 컨트롤러", "DNS 서버", "DHCP 서버", "웹 서버", "DB 서버", "메일 서버",
+                "프록시/로드밸런서(추정)"}
+
+
+def ntlm_os_name(v, server=False):
+    """NTLM 버전 구조체("windows nt 10.0 build 26100") -> OS 이름.
+    Windows 10/11은 major.minor가 모두 10.0이라 빌드 번호로 구분한다."""
     m = re.match(r"windows nt (\d+)\.(\d+) build (\d+)", v)
     if not m:
         return v
     major, minor, build = int(m.group(1)), int(m.group(2)), int(m.group(3))
     if major == 10:
-        name = "Windows 11/Server 2022+" if build >= 20348 else "Windows 10/Server 2016+"
+        if build in SERVER_BUILDS and (server or build not in CLIENT_BUILDS):
+            name = SERVER_BUILDS[build]
+        elif build in CLIENT_BUILDS:
+            name = CLIENT_BUILDS[build]
+        else:
+            # 표에 없는 빌드(Insider, 신규 릴리스 등): 22000 이상은 Windows 11
+            name = "Windows 11" if build >= 22000 else "Windows 10"
     else:
         name = {(6, 3): "Windows 8.1/Server 2012 R2", (6, 2): "Windows 8/Server 2012",
                 (6, 1): "Windows 7/Server 2008 R2", (6, 0): "Windows Vista/Server 2008",
@@ -321,10 +352,11 @@ def summarize(tenancies, shared_macs, domain_names):
             if s.signal == "machine_account":
                 v = machine_key(v)
             if s.signal == "os_hint":
-                name = ntlm_os_name(v) if s.source == "ntlm" else v
+                # NTLM 빌드는 역할을 안 뒤에 이름으로 바꾼다(클라이언트/서버 공용 빌드 구분).
                 rank = (OS_SOURCE_RANK.get(s.source, 1), s.conf)
-                if name not in os_cands or os_cands[name] < rank:
-                    os_cands[name] = rank
+                key = (v, s.source == "ntlm")
+                if key not in os_cands or os_cands[key] < rank:
+                    os_cands[key] = rank
                 continue
             c, k = vals[s.signal].get(v, (0, 0))
             vals[s.signal][v] = (max(c, s.conf), k + 1)
@@ -357,7 +389,16 @@ def summarize(tenancies, shared_macs, domain_names):
         # conn L2 주소로만 본 MAC: 공유 MAC 임계값 미만의 라우터 MAC일 가능성이 남는다.
         confidence = "낮음"
 
-    os_list = sorted(os_cands, key=lambda k: os_cands[k], reverse=True)
+    if CLIENT_DEFAULT_NAME.match(hostname):
+        is_server = False
+    else:
+        is_server = bool(SERVER_ROLES & set(roles)) or bool(SERVER_DEFAULT_NAME.match(hostname))
+    os_ranked = {}
+    for (v, ntlm), rank in os_cands.items():
+        name = ntlm_os_name(v, is_server) if ntlm else v
+        if name not in os_ranked or os_ranked[name] < rank:
+            os_ranked[name] = rank
+    os_list = sorted(os_ranked, key=lambda k: os_ranked[k], reverse=True)
     return {
         "asset_id": "A-" + hashlib.sha1(("%s|%s" % (id_type, id_value)).encode()).hexdigest()[:10],
         "id_type": id_type,
