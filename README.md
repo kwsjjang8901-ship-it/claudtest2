@@ -71,7 +71,7 @@ A-74eaea43f4  IP+시간(낮음)          -                    10.20.5.11       -
 | `dns_name` | dns(A/PTR 응답), smb(공유 경로), tls(SNI), http(Host) | 서버 표시 이름 (별칭일 수 있어 식별 키 아님) |
 | `user_account`, `dhcp_vendor_class`, `dhcp_fingerprint` | kerberos/ntlm/rdp, dhcp | 참고 정보 (식별 키 아님) |
 
-신호 정의, 신뢰도 기준, 판정 알고리즘, 한계는 [docs/DESIGN.md](docs/DESIGN.md)에 있습니다.
+신호 정의, 신뢰도 기준, 판정 알고리즘, 한계는 [docs/DESIGN.md](docs/DESIGN.md)에, 검증·개선 계획은 [docs/PLAN.md](docs/PLAN.md)에 있습니다.
 
 ## 테스트
 
