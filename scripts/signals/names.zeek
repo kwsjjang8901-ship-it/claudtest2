@@ -5,6 +5,9 @@
 ##! - mDNS PTR(역방향) 응답 -> hostname
 ##!   (mDNS 프로브는 기록하지 않음: 이름 충돌 중인 후보 이름까지 나와서 오염된다)
 ##! - 일반 DNS PTR/A 응답 -> dns_name (별칭일 수 있어 식별 키로 쓰지 않음)
+##! - DNS 동적 업데이트(RFC 2136, opcode 5): PC(또는 대신 등록하는 DHCP 서버)가 DC의 DNS에
+##!   "호스트 FQDN -> IP"를 등록 -> hostname / fqdn / domain
+##!   Zeek 9.x부터 UPDATE 메시지를 파싱한다(8.0.9는 DNS_unknown_opcode로 버린다).
 
 @load base/protocols/dns
 @load ../main
@@ -74,8 +77,32 @@ event dns_request(c: connection, msg: dns_msg, query: string, qtype: count, qcla
 		}
 	}
 
-function name_reply(c: connection, ans: dns_answer, a: addr)
+const DNS_OPCODE_UPDATE = 5;
+
+## DNS 동적 업데이트의 등록 레코드(이름 -> 주소).
+function dns_update(c: connection, ans: dns_answer, a: addr)
 	{
+	local fqdn = normalize_name(ans$query);
+	local parts = split_string1(fqdn, /\./);
+
+	if ( |parts| < 2 || parts[0] == "" )
+		return;
+
+	emit(a, HOSTNAME, parts[0], "dns_update", 75, c$uid);
+	emit(a, FQDN, fqdn, "dns_update", 75, c$uid);
+	emit(a, DOMAIN, parts[1], "dns_update", 75, c$uid);
+	}
+
+function name_reply(c: connection, msg: dns_msg, ans: dns_answer, a: addr)
+	{
+	if ( msg$opcode == DNS_OPCODE_UPDATE )
+		{
+		# 요청(QR=0)의 업데이트 레코드만 쓴다. 삭제 요청은 주소가 없어 여기로 오지 않는다.
+		if ( enable_dns_update && ! msg$QR && c$id$resp_p in DNS_PORTS )
+			dns_update(c, ans, a);
+		return;
+		}
+
 	# 멀티캐스트/브로드캐스트 이름 해석은 응답자가 자기 이름을 답한다.
 	local self_answer = (a == c$id$orig_h || a == c$id$resp_h);
 
@@ -100,12 +127,12 @@ function name_reply(c: connection, ans: dns_answer, a: addr)
 
 event dns_A_reply(c: connection, msg: dns_msg, ans: dns_answer, a: addr)
 	{
-	name_reply(c, ans, a);
+	name_reply(c, msg, ans, a);
 	}
 
 event dns_AAAA_reply(c: connection, msg: dns_msg, ans: dns_answer, a: addr)
 	{
-	name_reply(c, ans, a);
+	name_reply(c, msg, ans, a);
 	}
 
 event dns_PTR_reply(c: connection, msg: dns_msg, ans: dns_answer, name: string)

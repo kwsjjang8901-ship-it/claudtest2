@@ -48,6 +48,8 @@
 | machine_account, hostname, domain, fqdn | ldap | 85 / 80 (`User` 없을 때 `Host$` 머신 계정 75) | CLDAP Netlogon ping(DC 찾기) 필터의 `Host`, `DnsDomain`, `User`. 라우팅 구간에서도 보임 |
 | dns_name | dns | 40-50 | 일반 DNS A/PTR 응답. 별칭/로드밸런서일 수 있어 **식별 키로 쓰지 않음** |
 | dns_name | smb / tls / http / x509 | 50 | 클라이언트가 서버 접속에 쓴 이름(공유 경로, SNI, Host)과 서버 인증서 CN/SAN의 호스트 이름. 서버 표시용. 프록시 요청(CONNECT, 절대 URL)은 제외, IP당 `max_server_names`(20)개까지 |
+| hostname, fqdn, domain | dns_update | 75 | DNS 동적 업데이트(RFC 2136 UPDATE 요청)의 등록 레코드 "FQDN → IP". PC 자신 또는 DHCP 서버가 대신 등록. **Zeek 9.x만 파싱**(8.0.9는 `DNS_unknown_opcode`로 버림) |
+| smb_client_guid | smb | 70 | SMB2 NEGOTIATE 요청의 ClientGuid. Zeek 이벤트로 노출되지 않아 시그니처(`smb2-negotiate.sig`, 연결 첫 메시지에 고정)로 직접 추출. 식별 키 후보로 검증 중이라 참고 정보로만 기록하고, 리포트에 공유·변경 통계를 표시. SMB1 NEGOTIATE로 시작하는 연결은 대상 아님 |
 | hostname, fqdn | syslog | 70 | syslog 헤더의 호스트명(RFC 5424, ISO 시각+호스트명(ESXi), RFC 3164, FortiGate `devname`). 시각·IP·태그는 제외 |
 | device | syslog | 80 | 제품 고유 태그: `%ASA-`(cisco-asa), `%FTD-`, `%XXX-n-YYY:`(cisco-ios), `Vpxa:`/`Hostd:`(vmware-esxi), `devid=FG`(fortinet-fortigate), 백틱 구분 `UTM_`(utm) |
 | service | syslog | 90 | syslog 수신 쪽 `udp/514` → 리졸버 역할 "로그 수집 서버" (UDP라 응답 패킷이 없어 일반 서비스 신호로는 안 잡힘) |
@@ -79,7 +81,9 @@
    - PC와 서버가 같은 빌드를 쓰는 경우(14393, 17763, 26100)는 서버 역할(DC·DNS·DHCP·웹·DB·메일·프록시)이 있거나
      호스트명이 Windows Server 기본 이름(`WIN-` + 11자)이면 서버 OS로, `DESKTOP-`/`LAPTOP-` 기본 이름이거나 근거가 없으면 PC OS로 봅니다.
      파일 공유·RDP·SSH는 PC에서도 흔해 근거로 쓰지 않습니다.
-7. **범위 밖:** MDS Agent 목록 대조(미관리 판정)는 PoC 범위에서 제외하고 Next 단계에서 검토합니다.
+7. **최근 로그온 사용자:** Kerberos·NTLM 인증, RDP 접속에 쓴 사용자 계정을 마지막 관측 시각 순으로 최대 5개 표시합니다(리포트 "최근 사용자" 컬럼, CSV `last_user`).
+   **SMB2 클라이언트 GUID 검증:** GUID가 확인된 자산 수, 여러 자산이 같은 GUID를 쓰는 건수(복제 VM 의심), 한 자산에서 GUID가 바뀐 건수를 리포트에 표시합니다. 두 값이 0에 가까우면 식별 키로 올리는 것을 검토합니다.
+   **범위 밖:** MDS Agent 목록 대조(미관리 판정)는 PoC 범위에서 제외하고 Next 단계에서 검토합니다.
 
 8. **식별 품질 지표 (리포트 "식별 품질"):** 정답 목록 없이 계산할 수 있는 지표입니다.
    - 식별률: 대표 키가 IP+시간이 아닌 자산 비율. 신뢰 식별률은 그중 신뢰도 "낮음"(conn MAC만)을 뺀 비율
@@ -96,7 +100,7 @@
 |---|---|---|
 | `AssetID::asset_nets` | `{}` | 자산 대역. `option`이라 Config 프레임워크로 운영 중 변경 가능 |
 | `AssetID::suppress_interval` | `1hr` | 중복 억제 기간 (`&redef`) |
-| `AssetID::enable_*` | `T` | 신호 소스별 on/off (`dhcp, arp, conn_mac, kerberos, ntlm, ldap, nbns, llmnr, mdns, dns, server_names, rdp, smb, http_ua, ssh, services, agents, syslog, x509, ssh_host_key`) |
+| `AssetID::enable_*` | `T` | 신호 소스별 on/off (`dhcp, arp, conn_mac, kerberos, ntlm, ldap, nbns, llmnr, mdns, dns, server_names, rdp, smb, http_ua, ssh, services, agents, syslog, x509, ssh_host_key, dns_update, smb_guid`) |
 | `AssetID::service_ports` | 주요 포트 | 포트만으로 서비스로 인정할 목록 |
 | `AssetID::max_server_names` | 20 | IP당 서버 이름(SMB/TLS/HTTP) 기록 상한. 프록시·로드밸런서 로그 폭증 방지 |
 | `AssetID::ignore_hostnames` | localhost 등 | 식별에 쓸 수 없는 일반 이름 |

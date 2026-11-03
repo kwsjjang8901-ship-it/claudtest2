@@ -309,12 +309,25 @@ def resolve(sigs, shared_threshold=2, max_idle=86400):
     assets.sort(key=lambda a: (KEY_PRIORITY.index(a["id_type"]), a["hostname"] or "~", a["ips"][0]["ip"]))
     by_name = defaultdict(list)
     by_ssh_key = defaultdict(list)
+    by_guid = defaultdict(list)
     for a in assets:
         if a["hostname"]:
             by_name[host_key(a["hostname"])].append(a["asset_id"])
         for k in a["ssh_host_keys"]:
             by_ssh_key[k].append(a["asset_id"])
+        for g in a["smb_client_guids"]:
+            by_guid[g].append(a["asset_id"])
+    with_guid = [a for a in assets if a["smb_client_guids"]]
     return {
+        # SMB2 클라이언트 GUID를 식별 키로 쓸 수 있는지 판단 근거:
+        #   shared  = 여러 자산이 같은 GUID (복제 VM, 오결합 위험)
+        #   changed = 한 자산에 GUID 여러 개 (재부팅·재설치 시 변경 가능성)
+        "smb_guid_stats": {
+            "assets": len(with_guid),
+            "guids": len(by_guid),
+            "shared": {g: v for g, v in sorted(by_guid.items()) if len(v) > 1},
+            "changed": [a["asset_id"] for a in with_guid if len(a["smb_client_guids"]) > 1],
+        },
         # 같은 SSH 호스트 키를 쓰는 서로 다른 자산: 템플릿 복제 VM 의심(호스트 키를 식별 키로 쓸 수 있는지 판단 근거)
         "shared_ssh_keys": {k: v for k, v in sorted(by_ssh_key.items()) if len(v) > 1},
         "dup_hostnames": {k: v for k, v in sorted(by_name.items()) if len(v) > 1},
@@ -349,6 +362,7 @@ def summarize(tenancies, shared_macs, domain_names):
     ips = []
     count = 0
     id_ts = None  # 식별 키를 처음 얻은 시각
+    user_seen = {}  # 사용자 계정 -> (마지막 관측 시각, 출처)
     for t in tenancies:
         ips.append({"ip": t.ip, "first": t.first, "last": t.last})
         for s in t.sigs:
@@ -366,6 +380,8 @@ def summarize(tenancies, shared_macs, domain_names):
                 continue
             if s.signal == "machine_account":
                 v = machine_key(v)
+            if s.signal == "user_account" and (v not in user_seen or user_seen[v][0] < s.ts):
+                user_seen[v] = (s.ts, s.source)
             if s.signal == "os_hint":
                 # NTLM 빌드는 역할을 안 뒤에 이름으로 바꾼다(클라이언트/서버 공용 빌드 구분).
                 rank = (OS_SOURCE_RANK.get(s.source, 1), s.conf)
@@ -439,6 +455,10 @@ def summarize(tenancies, shared_macs, domain_names):
         "devices": sorted(vals.get("device", {})),
         "security_agents": sorted(vals.get("security_agent", {})),
         "ssh_host_keys": sorted(vals.get("ssh_host_key", {})),
+        "smb_client_guids": sorted(vals.get("smb_client_guid", {})),
+        # 최근 로그온 사용자: Kerberos/NTLM 인증, RDP 접속에 쓴 계정을 마지막 관측 순으로
+        "recent_users": [{"user": u, "last": t, "source": src}
+                         for u, (t, src) in sorted(user_seen.items(), key=lambda kv: -kv[1][0])][:5],
         "dhcp_vendor_class": best(vals.get("dhcp_vendor_class")),
         "dhcp_fingerprint": best(vals.get("dhcp_fingerprint")),
         "ips": ips,
@@ -454,13 +474,18 @@ def summarize(tenancies, shared_macs, domain_names):
 
 CSV_FIELDS = ["asset_id", "id_type", "id_value", "confidence", "display_name", "hostname", "fqdn", "domain",
               "os", "roles", "macs", "ips", "machine_accounts", "dhcp_client_ids", "users", "services",
-              "dns_names", "devices", "security_agents", "ssh_host_keys", "via_gateway_mac",
+              "dns_names", "devices", "security_agents", "last_user", "smb_client_guids", "ssh_host_keys",
+              "via_gateway_mac",
               "first_seen", "last_seen", "signal_count", "sources"]
 
 
 def ip_text(a, tz):
     return "; ".join("%s(%s~%s)" % (i["ip"], fmt_ts(i["first"], tz), fmt_ts(i["last"], tz)[11:])
                      for i in a["ips"])
+
+
+def user_text(users, tz):
+    return "; ".join("%s(%s, %s)" % (u["user"], fmt_ts(u["last"], tz), u["source"]) for u in users)
 
 
 def write_csv(path, assets, tz):
@@ -473,6 +498,8 @@ def write_csv(path, assets, tz):
                 v = a.get(k)
                 if k == "ips":
                     v = ip_text(a, tz)
+                elif k == "last_user":
+                    v = user_text(a["recent_users"][:1], tz)
                 elif k in ("first_seen", "last_seen"):
                     v = fmt_ts(v, tz)
                 elif k == "sources":
@@ -714,6 +741,15 @@ def write_report(path, result, st, tz, src):
         for ip, splits in result["reused_ips"].items():
             p("  %s  변경 시각: %s" % (ip, ", ".join(fmt_ts(t, tz) for t in splits)))
         p("")
+    g = result["smb_guid_stats"]
+    if g["assets"]:
+        p("[SMB2 클라이언트 GUID 검증]  (식별 키로 쓸 수 있는지 판단용)")
+        p("  GUID 확인 자산 %d개, 서로 다른 GUID %d개" % (g["assets"], g["guids"]))
+        p("  여러 자산이 같은 GUID(복제 VM 등 의심): %d건, 한 자산에 GUID 여러 개(변경): %d건" % (
+            len(g["shared"]), len(g["changed"])))
+        for guid, ids in list(g["shared"].items())[:10]:
+            p("    %s  자산 %d개: %s" % (guid, len(ids), ", ".join(ids[:5])))
+        p("")
     if result["shared_ssh_keys"]:
         p("[같은 SSH 호스트 키, 다른 자산 (템플릿 복제 VM 의심)]")
         for k, ids in list(result["shared_ssh_keys"].items())[:20]:
@@ -804,8 +840,11 @@ def write_html(path, result, st, tz, src, sigs):
         "reused_ips": {ip: [fmt_ts(t, tz) for t in v] for ip, v in result["reused_ips"].items()},
         "dup_hostnames": result["dup_hostnames"],
         "shared_ssh_keys": result["shared_ssh_keys"],
+        "smb_guid_stats": result["smb_guid_stats"],
         "assets": [dict(a, ips_text=ip_text(a, tz), id_label=KEY_LABEL[a["id_type"]],
                         first_seen=fmt_ts(a["first_seen"], tz), last_seen=fmt_ts(a["last_seen"], tz),
+                        recent_users_text=[user_text([u], tz) for u in a["recent_users"]],
+                        last_user=a["recent_users"][0]["user"] if a["recent_users"] else "",
                         ips=[dict(i, first=fmt_ts(i["first"], tz), last=fmt_ts(i["last"], tz)) for i in a["ips"]])
                    for a in result["assets"]],
         "signals": by_asset_sigs,

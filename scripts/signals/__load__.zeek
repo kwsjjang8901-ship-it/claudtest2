@@ -9,3 +9,4 @@
 @load ./server_names
 @load ./syslog
 @load ./x509
+@load ./smb_guid

@@ -28,6 +28,7 @@ export {
 	option enable_llmnr = T;
 	option enable_mdns = T;
 	option enable_dns = T;          ##< 일반 DNS(53) PTR/A 응답 -> dns_name
+	option enable_dns_update = T;   ##< DNS 동적 업데이트(opcode 5) -> hostname, fqdn, domain (Zeek 9.x)
 	option enable_rdp = T;
 	option enable_smb = T;
 	option enable_http_ua = T;
@@ -39,6 +40,7 @@ export {
 	option enable_syslog = T;       ##< syslog 송신 장비 -> hostname, device
 	option enable_x509 = T;         ##< 사내 서버 인증서 -> dns_name, device
 	option enable_ssh_host_key = T; ##< SSH 서버 호스트 키 지문 -> ssh_host_key
+	option enable_smb_guid = T;     ##< SMB2 NEGOTIATE 클라이언트 GUID -> smb_client_guid
 
 	## 잘 알려진 서비스 포트. TCP는 연결 성립만으로, UDP는 분석기 확인 시 기록하며
 	## 값은 "tcp/445"처럼 proto/port 로 남긴다(역할 판정은 Manager에서 포트 기준).

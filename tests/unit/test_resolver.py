@@ -214,6 +214,35 @@ class TestDevicesAgents(unittest.TestCase):
         self.assertEqual((q["active_passive"]["active"]["agent"], q["active_passive"]["active"]["agent_pct"]), (1, 50.0))
 
 
+class TestUsersAndSmbGuid(unittest.TestCase):
+    def test_recent_users_latest_first(self):
+        r = resolve([
+            sig(0, "10.0.0.5", "machine_account", "corp\\pc05$", "kerberos", 95),
+            sig(10, "10.0.0.5", "user_account", "corp\\kim", "kerberos", 70),
+            sig(50, "10.0.0.5", "user_account", "corp\\lee", "ntlm", 70),
+            sig(90, "10.0.0.5", "user_account", "corp\\kim", "kerberos", 70),
+        ])
+        users = r["assets"][0]["recent_users"]
+        self.assertEqual([(u["user"], u["last"], u["source"]) for u in users],
+                         [("corp\\kim", 90, "kerberos"), ("corp\\lee", 50, "ntlm")])
+
+    def test_smb_guid_stats(self):
+        r = resolve([
+            sig(0, "10.0.0.5", "mac", "aa:aa:aa:aa:aa:05"),
+            sig(0, "10.0.0.5", "smb_client_guid", "g-1", "smb", 70),
+            sig(0, "10.0.0.6", "mac", "aa:aa:aa:aa:aa:06"),
+            sig(0, "10.0.0.6", "smb_client_guid", "g-1", "smb", 70),   # 복제 VM처럼 공유
+            sig(0, "10.0.0.7", "mac", "aa:aa:aa:aa:aa:07"),
+            sig(0, "10.0.0.7", "smb_client_guid", "g-2", "smb", 70),
+            sig(9, "10.0.0.7", "smb_client_guid", "g-3", "smb", 70),   # 변경
+        ])
+        g = r["smb_guid_stats"]
+        self.assertEqual((g["assets"], g["guids"]), (3, 3))
+        self.assertEqual(len(g["shared"]["g-1"]), 2)
+        self.assertEqual(len(g["changed"]), 1)
+        self.assertEqual(len(r["assets"]), 3)   # 참고 정보라 자산을 합치지 않는다
+
+
 class TestIdQuality(unittest.TestCase):
     def test_rates_curve_and_active_split(self):
         r = resolve([

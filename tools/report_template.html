@@ -100,7 +100,7 @@ footer { color: var(--muted); font-size: 12px; padding: 0 24px 24px; }
         <thead><tr>
           <th data-k="display_name">호스트명</th><th data-k="id_label">식별 키</th><th data-k="ips_text">IP</th>
           <th data-k="mac">MAC</th><th data-k="os">OS</th><th data-k="roles_text">역할</th>
-          <th data-k="domain">도메인</th><th data-k="last_seen">마지막 관측</th>
+          <th data-k="domain">도메인</th><th data-k="last_user">최근 사용자</th><th data-k="last_seen">마지막 관측</th>
         </tr></thead>
         <tbody id="rows"></tbody>
       </table>
@@ -156,6 +156,9 @@ for (const [mac, ips] of Object.entries(D.shared_macs))
   notes.push(`<li><b class="mono">${esc(mac)}</b> 가 conn에서 IP ${ips.length}개에 보임 → 게이트웨이/라우터 MAC으로 보고 식별 키에서 제외 <span class="muted mono">(${esc(ips.slice(0, 6).join(", "))}${ips.length > 6 ? " …" : ""})</span></li>`);
 for (const [ip, ts] of Object.entries(D.reused_ips))
   notes.push(`<li><b class="mono">${esc(ip)}</b> 의 점유 단말이 바뀜 (${esc(ts.join(", "))}) → 자산을 나눔</li>`);
+const g = D.smb_guid_stats;
+if (g && g.assets)
+  notes.push(`<li>SMB2 클라이언트 GUID 검증: 확인 자산 ${g.assets}개, 여러 자산이 같은 GUID ${Object.keys(g.shared).length}건, 한 자산에 GUID 여러 개 ${g.changed.length}건 (둘 다 0에 가까우면 식별 키 후보)</li>`);
 for (const [k, ids] of Object.entries(D.shared_ssh_keys || {}))
   notes.push(`<li>SSH 호스트 키 <b class="mono">${esc(k.slice(0, 20))}…</b> 를 자산 ${ids.length}개가 공유 → 템플릿 복제 VM 의심 (호스트 키를 식별 키로 쓰지 않는 근거)</li>`);
 for (const [name, ids] of Object.entries(D.dup_hostnames || {}))
@@ -174,7 +177,7 @@ D.assets.forEach((a) => {
   a.mac = a.macs[0] || "";
   a.roles_text = a.roles.join(", ");
   a.search = [a.hostname, a.fqdn, a.domain, a.os, a.roles_text, a.ips_text, a.macs, a.machine_accounts, a.users,
-    a.dns_names, a.hostnames, a.devices, a.security_agents, a.dhcp_client_ids, a.via_gateway_mac, a.id_value, a.asset_id].flat().join(" ").toLowerCase();
+    a.dns_names, a.hostnames, a.devices, a.security_agents, a.smb_client_guids, a.dhcp_client_ids, a.via_gateway_mac, a.id_value, a.asset_id].flat().join(" ").toLowerCase();
 });
 
 let sortKey = null, sortDir = 1, openId = null;
@@ -195,7 +198,7 @@ function detail(a) {
     ${row("IP 점유 구간", a.ips.map((i) => `${i.ip}  ${i.first} ~ ${i.last}`))}
     ${row("호스트명 후보", a.hostnames)}${row("FQDN", a.fqdn)}${row("머신 계정", a.machine_accounts)}
     ${row("DHCP client-id", a.dhcp_client_ids)}${row("MAC", a.macs)}${row("게이트웨이 경유 MAC", a.via_gateway_mac)}
-    ${row("OS 후보", a.os_hints)}${row("장비 종류", a.devices)}${row("AhnLab 제품", a.security_agents)}${row("SSH 호스트 키", a.ssh_host_keys)}${row("서비스", a.services)}${row("사용자 계정", a.users)}
+    ${row("OS 후보", a.os_hints)}${row("장비 종류", a.devices)}${row("AhnLab 제품", a.security_agents)}${row("SSH 호스트 키", a.ssh_host_keys)}${row("SMB2 클라이언트 GUID", a.smb_client_guids)}${row("최근 로그온 사용자", a.recent_users_text)}${row("서비스", a.services)}${row("사용자 계정", a.users)}
     ${row("DNS 이름", a.dns_names)}${row("소프트웨어", a.software)}
     ${row("DHCP vendor", a.dhcp_vendor_class)}${row("DHCP 지문", a.dhcp_fingerprint)}
     ${row("신호 출처", Object.entries(a.sources).map(([k, v]) => `${k}:${v}`).join(" "))}
@@ -215,8 +218,8 @@ function render() {
       <td><span class="badge b-${esc(a.confidence)}">${esc(a.confidence)}</span> ${esc(a.id_label)}</td>
       <td class="mono">${a.ips.map((i) => esc(i.ip)).join("<br>")}</td>
       <td class="mono">${esc(a.mac || "-")}</td><td>${esc(a.os || "-")}</td><td>${esc(a.roles_text || "-")}</td>
-      <td>${esc(a.domain || "-")}</td><td class="mono">${esc(a.last_seen)}</td></tr>`;
-    return tr + (openId === a.asset_id ? `<tr class="detail"><td colspan="8">${detail(a)}</td></tr>` : "");
+      <td>${esc(a.domain || "-")}</td><td>${esc(a.last_user || "-")}</td><td class="mono">${esc(a.last_seen)}</td></tr>`;
+    return tr + (openId === a.asset_id ? `<tr class="detail"><td colspan="9">${detail(a)}</td></tr>` : "");
   }).join("");
   document.querySelectorAll("tr.asset").forEach((tr) => tr.addEventListener("click", () => {
     openId = openId === tr.dataset.id ? null : tr.dataset.id;

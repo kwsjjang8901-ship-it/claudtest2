@@ -64,7 +64,7 @@ A-74eaea43f4  IP+시간(낮음)          -                    10.20.5.11       -
 | `machine_account` | kerberos(AS-REQ `HOST$`), ldap(CLDAP Netlogon ping), ntlm | 식별 키 1순위 |
 | `dhcp_client_id` | dhcp(option 61) | 식별 키 2순위 |
 | `mac` | dhcp, arp, conn(L2 주소) | 식별 키 3순위 |
-| `hostname` | dhcp, kerberos, ldap, ntlm, rdp, nbns, llmnr, mdns | 식별 키 4순위 |
+| `hostname` | dhcp, kerberos, ldap, ntlm, rdp, nbns, llmnr, mdns, dns_update(Zeek 9.x), syslog | 식별 키 4순위 |
 | `fqdn`, `domain` | dhcp, kerberos, ntlm, nbns, smb | 보조 |
 | `os_hint`, `software` | ntlm(버전), smb(native OS), ssh 배너, http User-Agent, dhcp vendor | OS 추정 |
 | `service` | 연결 성립/프로토콜 확인 | 역할 추정 (DC, DNS, 웹, DB, 프린터 등) |
@@ -72,6 +72,7 @@ A-74eaea43f4  IP+시간(낮음)          -                    10.20.5.11       -
 | `device` | syslog(ESXi, Cisco ASA/IOS, FortiGate, UTM), x509(AhnLab MDS/EPP, VMware 등) | 장비·제품 종류 → 리포트 역할 |
 | `security_agent` | ahnlab(User-Agent `v3inet4/…`, `MeDCore`) | 단말의 AhnLab 제품 통신 |
 | `ssh_host_key` | ssh | SSH 서버 호스트 키 지문 (참고 정보) |
+| `smb_client_guid` | smb(SMB2 NEGOTIATE) | SMB2 클라이언트 GUID (식별 키 후보, 리포트에서 공유·변경 검증) |
 | `user_account`, `dhcp_vendor_class`, `dhcp_fingerprint` | kerberos/ntlm/rdp, dhcp | 참고 정보 (식별 키 아님) |
 
 신호 정의, 신뢰도 기준, 판정 알고리즘, 한계는 [docs/DESIGN.md](docs/DESIGN.md)에, 검증·개선 계획은 [docs/PLAN.md](docs/PLAN.md)에 있습니다.
@@ -79,7 +80,7 @@ A-74eaea43f4  IP+시간(낮음)          -                    10.20.5.11       -
 ## 테스트
 
 ```bash
-tests/run_tests.sh                               # Zeek btest(17) + 리졸버 unittest(20)
+tests/run_tests.sh                               # Zeek btest(18, 8.x는 DNS 동적 업데이트 1개 건너뜀) + 리졸버 unittest(22)
 ZEEK_IMAGE=zeek/zeek:8.0.9 tests/run_tests.sh    # Zeek 8.0으로 btest
 ```
 

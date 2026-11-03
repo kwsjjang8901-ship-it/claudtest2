@@ -36,6 +36,7 @@ export {
 	const DEVICE = "device";                    ##< 장비/제품 종류(vmware-esxi, cisco-asa, ahnlab-mds 등)
 	const SECURITY_AGENT = "security_agent";    ##< 단말에 설치된 보안 제품 통신(ahnlab:V3ES90ASD/5.6.0.55 등)
 	const SSH_HOST_KEY = "ssh_host_key";        ##< SSH 서버 호스트 키 지문
+	const SMB_CLIENT_GUID = "smb_client_guid";  ##< SMB2 NEGOTIATE ClientGuid (검증 중인 후보 키)
 
 	type Info: record {
 		## 관측 시각
