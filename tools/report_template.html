@@ -58,6 +58,10 @@ tr.detail td { background: var(--bg); }
 .detail-grid div:nth-child(odd) { color: var(--muted); }
 .muted { color: var(--muted); }
 ul.plain { margin: 0; padding-left: 18px; }
+h3 { font-size: 13px; margin: 0 0 6px; color: var(--muted); }
+details.guide { border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; margin-bottom: 8px; }
+details.guide summary { cursor: pointer; font-weight: 600; }
+details.guide td { font-size: 12px; }
 footer { color: var(--muted); font-size: 12px; padding: 0 24px 24px; }
 @media (max-width: 640px) {
   header, main, footer { padding-left: 16px; padding-right: 16px; }
@@ -80,6 +84,23 @@ footer { color: var(--muted); font-size: 12px; padding: 0 24px 24px; }
   <section class="panel">
     <h2>식별 품질</h2>
     <div class="sub" style="margin:-6px 0 12px">식별 = 대표 키가 IP+시간이 아님 · 신뢰 식별 = 그중 신뢰도 '낮음'(conn MAC만) 제외 · 능동 IP = 연결을 먼저 연 IP</div>
+    <details class="guide" open>
+      <summary>식별률 기준과 지표 설명</summary>
+      <div class="grid2" style="margin-top:8px">
+        <div><h3>기준</h3><table><tbody id="q-criteria"></tbody></table>
+          <h3 style="margin-top:12px">신뢰도별 판정</h3>
+          <table><thead><tr><th>대표 식별 키</th><th>신뢰도</th><th>식별</th><th>신뢰 식별</th></tr></thead><tbody>
+            <tr><td>머신 계정</td><td>높음</td><td>O</td><td>O</td></tr>
+            <tr><td>DHCP client-id</td><td>높음</td><td>O</td><td>O</td></tr>
+            <tr><td>MAC (ARP·DHCP 확인)</td><td>중간</td><td>O</td><td>O</td></tr>
+            <tr><td>호스트명</td><td>중간</td><td>O</td><td>O</td></tr>
+            <tr><td>MAC (연결 기록에서만)</td><td>낮음</td><td>O</td><td>X</td></tr>
+            <tr><td>IP+시간</td><td>낮음</td><td>X</td><td>X</td></tr>
+          </tbody></table></div>
+        <div><h3>지표 의미</h3><table><tbody id="q-metrics"></tbody></table></div>
+      </div>
+    </details>
+    <div class="sub" id="q-breakdown" style="margin:10px 0"></div>
     <div class="cards" id="q-cards"></div>
     <div class="grid2" style="margin-top:16px">
       <div><h2>캡처 시간별 식별률</h2><div id="q-curve"></div>
@@ -144,6 +165,11 @@ if (q.active_passive) {
     ["수동 IP 식별률", ap.passive.identified_pct + "%", `${ap.passive.identified} / ${ap.passive.n}`],
     ["능동 IP 중 AhnLab 제품 통신", ap.active.agent_pct + "%", `${ap.active.agent} / ${ap.active.n}`]);
 }
+const kvRows = (rows) => rows.map(([k, v]) => `<tr><td style="white-space:nowrap"><b>${esc(k)}</b></td><td>${esc(v)}</td></tr>`).join("");
+$("q-criteria").innerHTML = kvRows(st.quality_criteria || []);
+$("q-metrics").innerHTML = kvRows(st.quality_metrics || []);
+$("q-breakdown").textContent = q.breakdown && q.breakdown.length
+  ? "식별 내역: " + q.breakdown.map(([k, n]) => `${k} ${n}`).join(", ") : "식별 내역: 없음";
 $("q-cards").innerHTML = qCards.map(([k, v, d]) => `<div class="card"><div class="v">${esc(v)}</div><div class="k">${esc(k)} · ${esc(d)}</div></div>`).join("");
 $("q-curve").innerHTML = bars(q.curve.map(([label, seen, idn, p]) => [`${label}`, `${idn}/${seen}`, p]));
 const ttiTotal = q.tti.reduce((s, [, v]) => s + v, 0);

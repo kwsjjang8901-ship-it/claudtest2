@@ -660,8 +660,37 @@ def id_quality(assets, active, t_start, t_end):
         agents = sum(1 for a in act if a["security_agents"])
         split["active"].update(agent=agents, agent_pct=pct(agents, len(act)))
 
-    return {"overall": rates(assets), "tti": tti_rows, "curve": curve,
+    # 식별 내역: 어떤 대표 키로 식별됐는지(신뢰도 포함)
+    breakdown = [("%s(%s)" % (KEY_LABEL[k], conf), n) for (k, conf), n in
+                 sorted(Counter((a["id_type"], a["confidence"]) for a in assets if ided(a)).items(),
+                        key=lambda kv: (KEY_PRIORITY.index(kv[0][0]), ["높음", "중간", "낮음"].index(kv[0][1])))]
+
+    return {"overall": rates(assets), "tti": tti_rows, "curve": curve, "breakdown": breakdown,
             "subnets": nets[:20], "subnet_total": len(nets), "active_passive": split}
+
+
+# 리포트(텍스트·HTML)에 넣는 식별 품질 기준과 지표 설명
+QUALITY_CRITERIA = [
+    ("식별", "대표 식별 키가 IP+시간이 아닌 자산. 머신 계정·DHCP client-id(높음), "
+             "ARP/DHCP로 확인한 MAC·호스트명(중간), 연결 기록에서만 본 MAC(낮음)"),
+    ("신뢰 식별", "식별 중 신뢰도 '낮음'을 뺀 것. 연결 기록에서만 본 MAC은 라우터·방화벽 MAC일 수 있어 제외"),
+    ("능동 / 수동 IP", "conn.log에서 연결을 먼저 연 IP(실제로 활동한 단말) / 통신 상대로만 보인 IP(주로 서버)"),
+    ("식별에 안 넣는 것", "DNS·서버 이름, 장비 종류, AhnLab 제품, OS, 역할, SSH 호스트 키, SMB2 GUID, 사용자 계정 "
+                         "(여러 자산이 같은 값을 갖거나 검증 전이라 설명 정보로만 사용)"),
+    ("주의", "식별 키를 얻었는지만 본다. 키가 맞는지(정확도)는 AD·DHCP 정답 목록과 비교해야 알 수 있다"),
+]
+QUALITY_METRICS = [
+    ("전체 식별률", "리포트의 모든 자산(-n 대역) 중 식별된 비율. 통신 상대로만 보인 IP까지 분모에 들어간다"),
+    ("능동 IP 식별률", "실제로 활동한 단말 중 식별된 비율. 센서 성능을 볼 때 가장 실질적인 지표"),
+    ("수동 IP 식별률", "통신 상대로만 보인 IP(주로 서버) 중 식별된 비율"),
+    ("능동 IP 중 AhnLab 제품 통신", "능동 IP 중 AhnLab 제품 User-Agent가 보인 비율(식별률과 별개 지표)"),
+    ("캡처 시간별 식별률", "그 시점까지 처음 관측된 자산 중 그 시점까지 식별 키를 얻은 비율. "
+                         "시간이 지나며 오르면 더 길게 캡처할수록 좋아지고, 평평하면 미러 위치의 한계"),
+    ("식별 소요 시간", "자산을 처음 관측한 뒤 식별 키를 얻기까지 걸린 시간 분포"),
+    ("구간(/24)별 식별률", "자산의 첫 IP가 속한 /24 대역별 식별률(자산 수 상위 20개)"),
+]
+QUALITY_GUIDE = (["기준"] + ["  %s: %s" % kv for kv in QUALITY_CRITERIA]
+                 + ["지표"] + ["  %s: %s" % kv for kv in QUALITY_METRICS])
 
 
 def fmt_dur(sec):
@@ -743,9 +772,14 @@ def write_report(path, result, st, tz, src):
     p("")
     q = st["quality"]
     o = q["overall"]
-    p("[식별 품질]  식별 = 대표 키가 IP+시간이 아님, 신뢰 식별 = 그중 신뢰도 '낮음' 제외")
+    p("[식별 품질]")
+    for line in QUALITY_GUIDE:
+        p("  " + line)
+    p("")
     p("  %s: %d개 중 식별 %d (%.1f%%), 신뢰 식별 %d (%.1f%%)" % (
         pad("전체", 20), o["n"], o["identified"], o["identified_pct"], o["trusted"], o["trusted_pct"]))
+    if q["breakdown"]:
+        p("  %s: %s" % (pad("식별 내역", 20), ", ".join("%s %d" % kv for kv in q["breakdown"])))
     if q["active_passive"]:
         for key, label in (("active", "능동 IP(연결 시작)"), ("passive", "수동 IP(상대로만)")):
             r = q["active_passive"][key]
@@ -873,6 +907,8 @@ def write_html(path, result, st, tz, src, sigs):
             "by_source": st["by_source"],
             "capture": st["capture"],
             "quality": st["quality"],
+            "quality_criteria": QUALITY_CRITERIA,
+            "quality_metrics": QUALITY_METRICS,
             "bidir_warn_pct": BIDIR_WARN_PCT,
             "volume": [hsize(v) for v in st["volume"]] + [round(100.0 * st["volume"][0] / st["volume"][1], 1) if st["volume"][1] else 0] if st["volume"] else None,
         },

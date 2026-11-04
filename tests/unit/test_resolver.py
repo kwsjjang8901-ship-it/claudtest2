@@ -260,6 +260,7 @@ class TestIdQuality(unittest.TestCase):
         self.assertEqual(q["active_passive"]["active"]["identified"], 1)
         self.assertEqual(q["active_passive"]["passive"]["n"], 1)
         self.assertEqual(dict(q["subnets"])["10.0.0.0/24"]["n"], 2)
+        self.assertEqual(q["breakdown"], [("머신 계정(높음)", 1), ("MAC(낮음)", 1)])
 
 
 class TestCaptureHealth(unittest.TestCase):
