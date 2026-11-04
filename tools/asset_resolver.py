@@ -516,12 +516,23 @@ def capture_health(zeek_dir):
 
 def scan_conn_log(zeek_dir):
     """conn.log를 한 번 읽어 (미러 품질, 연결을 먼저 연 IP 집합)을 돌려준다.
-    미러 품질: TCP 연결 중 양방향(요청+응답)이 보인 비율. history의 대문자는 연결 시작측,
-    소문자는 응답측 활동이다. JSON/TSV 둘 다 읽는다."""
+
+    history의 대문자는 연결 시작측, 소문자는 응답측 활동이다(D/d = 데이터).
+    - 전체 양방향 비율: TCP 연결 중 응답측 활동이 보인 비율 (참고용)
+    - 판정 비율(data_both_pct): 시작측이 데이터를 보낸 연결 중 응답이 보인 비율.
+      단방향 미러면 데이터를 보낸 연결에도 응답이 없어 낮아지고, 포트 스캔·닿지 않는 대상에 대한
+      연결 시도(데이터 없이 SYN만)는 분모에서 빠지므로 오경보를 내지 않는다.
+    - 응답 없는 연결 시도(attempts): 데이터 없이 시작측만 보인 연결. 시도가 많은 IP 상위 5개를
+      대상 호스트·포트 수와 함께 보여 준다(스캐너 추정).
+    JSON/TSV 둘 다 읽는다."""
     path = os.path.join(zeek_dir or "", "conn.log")
     if not zeek_dir or not os.path.isfile(path):
         return None, None
     tcp = both = orig_only = resp_only = 0
+    data = data_both = attempts = 0
+    attempt_by = Counter()
+    attempt_hosts = defaultdict(set)
+    attempt_ports = defaultdict(set)
     active = set()
     fields = None
     with open(path, encoding="utf-8", errors="replace") as f:
@@ -553,15 +564,38 @@ def scan_conn_log(zeek_dir):
                 orig_only += 1
             elif low:
                 resp_only += 1
+            if "D" in h:
+                data += 1
+                if low:
+                    data_both += 1
+            elif up and not low:
+                attempts += 1
+                o = d.get("id.orig_h")
+                attempt_by[o] += 1
+                # 상위 IP만 보여 줄 것이므로 IP별 집합 크기를 제한해 메모리를 아낀다.
+                if len(attempt_hosts[o]) < 5000:
+                    attempt_hosts[o].add(d.get("id.resp_h"))
+                if len(attempt_ports[o]) < 5000:
+                    attempt_ports[o].add(d.get("id.resp_p"))
     health = None
     if tcp:
         health = {"tcp": tcp, "both": both, "orig_only": orig_only, "resp_only": resp_only,
-                  "both_pct": round(100.0 * both / tcp, 1)}
+                  "both_pct": round(100.0 * both / tcp, 1),
+                  "data": data, "data_both": data_both,
+                  "data_both_pct": round(100.0 * data_both / data, 1) if data else None,
+                  "attempts": attempts,
+                  "attempt_top": [{"ip": o, "attempts": n, "hosts": len(attempt_hosts[o]),
+                                   "ports": len(attempt_ports[o])} for o, n in attempt_by.most_common(5)]}
     return health, active
 
 
-# 양방향 비율이 이보다 낮으면 단방향 미러로 의심한다.
+# 데이터를 보낸 연결 중 응답이 보인 비율이 이보다 낮으면 단방향 미러로 의심한다.
 BIDIR_WARN_PCT = 50
+
+
+def one_way_suspected(cap):
+    pct = cap.get("data_both_pct")
+    return pct is not None and pct < BIDIR_WARN_PCT
 
 
 TTI_BUCKETS = [(60, "1분 이내"), (600, "1~10분"), (1800, "10~30분"), (3600, "30분~1시간"),
@@ -690,9 +724,15 @@ def write_report(path, result, st, tz, src):
         p("로그량          : asset_signal %s / Zeek 전체 로그 %s (%.1f%%)" % (hsize(sig_b), hsize(total_b), ratio))
     cap = st["capture"]
     if cap:
-        p("캡처 품질       : TCP 연결 %d개 중 양방향 %.1f%% (요청만 %d, 응답만 %d)" % (
-            cap["tcp"], cap["both_pct"], cap["orig_only"], cap["resp_only"]))
-        if cap["both_pct"] < BIDIR_WARN_PCT:
+        p("캡처 품질       : 데이터를 보낸 TCP 연결 %d개 중 응답이 보인 비율 %s" % (
+            cap["data"], "-" if cap["data_both_pct"] is None else "%.1f%%" % cap["data_both_pct"]))
+        p("                  (전체 TCP %d개: 양방향 %.1f%%, 요청만 %d, 응답만 %d, 응답 없는 연결 시도 %d)" % (
+            cap["tcp"], cap["both_pct"], cap["orig_only"], cap["resp_only"], cap["attempts"]))
+        if cap["attempts"] and cap["attempt_top"]:
+            p("  응답 없는 연결 시도가 많은 IP (스캐너·접속 실패 반복 추정):")
+            for t in cap["attempt_top"]:
+                p("    %-16s 시도 %7d  대상 호스트 %5d  대상 포트 %5d" % (t["ip"], t["attempts"], t["hosts"], t["ports"]))
+        if one_way_suspected(cap):
             p("  ! 단방향 미러 의심: 응답(또는 요청) 패킷이 대부분 없음. 서비스/서버 응답 기반 신호")
             p("    (서비스, DNS 응답, NTLM CHALLENGE, SSH 서버 배너 등)가 수집되지 않는다.")
             p("    SPAN을 양방향(both/rx+tx)으로 설정하거나, TAP 두 포트를 mergecap으로 합쳐서 다시 측정 필요.")

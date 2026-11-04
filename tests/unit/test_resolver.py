@@ -263,16 +263,33 @@ class TestIdQuality(unittest.TestCase):
 
 
 class TestCaptureHealth(unittest.TestCase):
+    def write_conn(self, d, histories):
+        with open(os.path.join(d, "conn.log"), "w") as f:
+            for i, (orig, h) in enumerate(histories):
+                f.write(json.dumps({"proto": "tcp", "history": h, "id.orig_h": orig,
+                                    "id.resp_h": "10.9.0.%d" % (i % 250), "id.resp_p": 1000 + i}) + "\n")
+            f.write(json.dumps({"proto": "udp", "history": "D", "id.orig_h": "10.0.0.1"}) + "\n")
+
     def test_one_way_mirror_detected(self):
         with tempfile.TemporaryDirectory() as d:
-            with open(os.path.join(d, "conn.log"), "w") as f:
-                for h in ("ShADadFf", "S", "ShAD", "D", "Dd"):
-                    f.write(json.dumps({"proto": "tcp", "history": h}) + "\n")
-                f.write(json.dumps({"proto": "udp", "history": "D"}) + "\n")
+            # 요청측이 데이터를 보냈는데 응답이 안 보임 -> 단방향 미러
+            self.write_conn(d, [("10.0.0.1", "ShADadFf"), ("10.0.0.2", "SAD"), ("10.0.0.3", "SAD"), ("10.0.0.4", "D")])
             cap = ar.capture_health(d)
-        self.assertEqual((cap["tcp"], cap["both"], cap["orig_only"]), (5, 3, 2))
-        self.assertEqual(cap["both_pct"], 60.0)
+        self.assertEqual((cap["tcp"], cap["data"], cap["data_both"]), (4, 4, 1))
+        self.assertEqual(cap["data_both_pct"], 25.0)
+        self.assertTrue(ar.one_way_suspected(cap))
         self.assertIsNone(ar.capture_health(None))
+
+    def test_scan_is_not_one_way(self):
+        with tempfile.TemporaryDirectory() as d:
+            # 정상 양방향 연결 3개 + 데이터 없는 연결 시도 100개(스캔)
+            self.write_conn(d, [("10.0.0.1", "ShADadFf")] * 3 + [("10.0.0.66", "S")] * 100)
+            cap = ar.capture_health(d)
+        self.assertLess(cap["both_pct"], 50)           # 예전 지표라면 오경보
+        self.assertEqual(cap["data_both_pct"], 100.0)
+        self.assertFalse(ar.one_way_suspected(cap))
+        self.assertEqual(cap["attempts"], 100)
+        self.assertEqual(cap["attempt_top"][0], {"ip": "10.0.0.66", "attempts": 100, "hosts": 100, "ports": 100})
 
 
 class TestCli(unittest.TestCase):
