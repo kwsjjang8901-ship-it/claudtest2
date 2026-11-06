@@ -62,7 +62,7 @@ export {
 		[9200/tcp] = "elasticsearch", [27017/tcp] = "mongodb",
 		[53/udp] = "dns", [67/udp] = "dhcp", [69/udp] = "tftp",
 		[88/udp] = "kerberos", [123/udp] = "ntp",
-		[161/udp] = "snmp", [389/udp] = "cldap", [514/udp] = "syslog",
+		[161/udp] = "snmp", [389/udp] = "cldap", [514/udp] = "syslog", [514/tcp] = "syslog",
 		[1812/udp] = "radius",
 	};
 

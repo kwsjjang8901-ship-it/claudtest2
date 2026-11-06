@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from collections import defaultdict
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, os.path.join(ROOT, "tools"))
@@ -190,6 +191,37 @@ class TestResolver(unittest.TestCase):
         ])
         self.assertEqual(len(r["assets"]), 2)
         self.assertEqual(list(r["dup_hostnames"]), ["desktop-1"])
+
+
+class TestMultiMachineAccounts(unittest.TestCase):
+    def test_relay_ip_accounts_are_not_identity(self):
+        # ldap_invalid_credentials.pcap 재현: 공격자 IP가 DC·피해 PC의 머신 계정으로 연달아 인증
+        r = resolve([
+            sig(0, "192.168.66.138", "hostname", "dc01-zion", "ntlm", 85),
+            sig(0, "192.168.66.138", "machine_account", "matrix\\dc01-zion$", "kerberos", 95),
+            sig(1, "192.168.66.141", "hostname", "desktop-evil", "ntlm", 85),
+            sig(20, "192.168.66.141", "machine_account", "matrix\\dc01-zion$", "ntlm", 90),
+            sig(46, "192.168.66.141", "machine_account", "matrix\\desktop-evil$", "ntlm", 90),
+            sig(46, "192.168.66.141", "machine_account", "matrix\\desktop-victim$", "ntlm", 90),
+            sig(47, "192.168.66.141", "hostname", "desktop-victim", "kerberos", 90),
+        ])
+        self.assertEqual(r["multi_account_ips"]["192.168.66.141"],
+                         ["matrix\\dc01-zion$", "matrix\\desktop-evil$", "matrix\\desktop-victim$"])
+        self.assertEqual(r["reused_ips"], {})                       # 가짜 IP 재사용 없음
+        by_ip = defaultdict(list)
+        for a in r["assets"]:
+            by_ip[a["ips"][0]["ip"]].append(a)
+        self.assertEqual(len(by_ip["192.168.66.141"]), 1)            # 가짜 자산 없음
+        evil = by_ip["192.168.66.141"][0]
+        self.assertEqual((evil["id_type"], evil["hostname"]), ("hostname", "desktop-evil"))
+        self.assertEqual(len(evil["multi_machine_accounts"]), 3)
+        dc = by_ip["192.168.66.138"][0]                              # DC 자산과 합쳐지지 않음
+        self.assertEqual([i["ip"] for i in dc["ips"]], ["192.168.66.138"])
+
+    def test_same_account_repeated_is_fine(self):
+        r = resolve([sig(t, "10.0.0.5", "machine_account", "corp\\pc05$", "kerberos", 95) for t in (0, 60, 120)])
+        self.assertEqual(r["multi_account_ips"], {})
+        self.assertEqual(r["assets"][0]["id_type"], "machine_account")
 
 
 class TestDevicesAgents(unittest.TestCase):

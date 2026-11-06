@@ -185,6 +185,8 @@ for (const [ip, ts] of Object.entries(D.reused_ips))
 const g = D.smb_guid_stats;
 if (g && g.assets)
   notes.push(`<li>SMB2 클라이언트 GUID 검증: 확인 자산 ${g.assets}개, 여러 자산이 같은 GUID ${Object.keys(g.shared).length}건, 한 자산에 GUID 여러 개 ${g.changed.length}건 (둘 다 0에 가까우면 식별 키 후보)</li>`);
+for (const [ip, accts] of Object.entries(D.multi_account_ips || {}))
+  notes.unshift(`<li><b>다중 머신 계정 인증:</b> <span class="mono">${esc(ip)}</span> 가 짧은 시간에 머신 계정 ${accts.length}개로 인증 (<span class="mono">${esc(accts.join(", "))}</span>) → NTLM 릴레이·해시 전달 등 공격, NAT, 장애 조치 클러스터 의심. 이 IP의 머신 계정은 식별 키로 쓰지 않음</li>`);
 for (const [k, ids] of Object.entries(D.shared_ssh_keys || {}))
   notes.push(`<li>SSH 호스트 키 <b class="mono">${esc(k.slice(0, 20))}…</b> 를 자산 ${ids.length}개가 공유 → 템플릿 복제 VM 의심 (호스트 키를 식별 키로 쓰지 않는 근거)</li>`);
 for (const [name, ids] of Object.entries(D.dup_hostnames || {}))
@@ -228,7 +230,7 @@ function detail(a) {
     ${row("IP 점유 구간", a.ips.map((i) => `${i.ip}  ${i.first} ~ ${i.last}`))}
     ${row("호스트명 후보", a.hostnames)}${row("FQDN", a.fqdn)}${row("머신 계정", a.machine_accounts)}
     ${row("DHCP client-id", a.dhcp_client_ids)}${row("MAC", a.macs)}${row("게이트웨이 경유 MAC", a.via_gateway_mac)}
-    ${row("OS 후보", a.os_hints)}${row("장비 종류", a.devices)}${row("AhnLab 제품", a.security_agents)}${row("SSH 호스트 키", a.ssh_host_keys)}${row("SMB2 클라이언트 GUID", a.smb_client_guids)}${row("최근 로그온 사용자", a.recent_users_text)}${row("서비스", a.services)}${row("사용자 계정", a.users)}
+    ${row("OS 후보", a.os_hints)}${row("장비 종류", a.devices)}${row("AhnLab 제품", a.security_agents)}${row("SSH 호스트 키", a.ssh_host_keys)}${row("다중 인증 머신 계정(식별 제외)", a.multi_machine_accounts)}${row("SMB2 클라이언트 GUID", a.smb_client_guids)}${row("최근 로그온 사용자", a.recent_users_text)}${row("서비스", a.services)}${row("사용자 계정", a.users)}
     ${row("DNS 이름", a.dns_names)}${row("소프트웨어", a.software)}
     ${row("DHCP vendor", a.dhcp_vendor_class)}${row("DHCP 지문", a.dhcp_fingerprint)}
     ${row("신호 출처", Object.entries(a.sources).map(([k, v]) => `${k}:${v}`).join(" "))}

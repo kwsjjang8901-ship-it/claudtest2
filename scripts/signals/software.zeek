@@ -61,7 +61,9 @@ function ssh_os(banner: string): string
 	{
 	local b = to_lower(banner);
 
-	for ( os in set("ubuntu", "debian", "freebsd", "raspbian", "centos", "redhat") )
+	# 순서가 중요하다: Ubuntu·Raspbian 배너에는 "Debian"도 들어 있다(예: "Debian-5ubuntu1").
+	# set은 순회 순서가 정해지지 않으므로 vector로 우선순위를 고정한다.
+	for ( _, os in vector("ubuntu", "raspbian", "debian", "freebsd", "centos", "redhat") )
 		if ( strstr(b, os) > 0 )
 			return "linux(" + os + ")";
 

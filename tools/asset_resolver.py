@@ -181,8 +181,16 @@ class Tenancy:
         self.last = max(self.last, s.ts)
 
 
-def identity_of(s, shared_macs, domain_names):
+def untrusted_account_signal(s, multi_ips):
+    """다중 머신 계정 인증 IP에서 나온, 계정에 묶인 신호(머신 계정, 그 계정에서 만든 Kerberos 호스트명)."""
+    return s.ip in multi_ips and (s.signal == "machine_account" or
+                                  (s.signal == "hostname" and s.source == "kerberos"))
+
+
+def identity_of(s, shared_macs, domain_names, multi_ips=()):
     """신호가 식별 키이면 (type, key) 반환, 아니면 None."""
+    if untrusted_account_signal(s, multi_ips):
+        return None
     if s.signal == "machine_account":
         return ("machine_account", machine_key(s.value))
     if s.signal == "dhcp_client_id":
@@ -204,6 +212,26 @@ def is_group_name(s, domain_names):
     return s.source == "nbns" and host_key(s.value) in domain_names
 
 
+def find_multi_account_ips(sigs, window):
+    """window(초) 안에 서로 다른 머신 계정이 2개 이상 나온 IP -> {ip: [계정...]}.
+
+    머신 계정은 원래 그 PC에서만 인증에 쓰인다. 한 IP가 여러 머신 계정으로 인증하면 NTLM 릴레이·
+    해시 전달 같은 공격(또는 NAT, 장애 조치 클러스터)이라, 그 IP의 머신 계정을 식별 키로 쓰면
+    가짜 자산이 생기거나 피해 PC 자산과 잘못 합쳐진다."""
+    by_ip = defaultdict(list)
+    for s in sigs:
+        if s.signal == "machine_account":
+            by_ip[s.ip].append((s.ts, machine_key(s.value)))
+    flagged = {}
+    for ip, lst in by_ip.items():
+        lst.sort()
+        for i, (t, k) in enumerate(lst):
+            if any(k2 != k for t2, k2 in lst[i + 1:] if t2 - t <= window):
+                flagged[ip] = sorted({k2 for _, k2 in lst})
+                break
+    return flagged
+
+
 def find_shared_macs(sigs, threshold):
     ips = defaultdict(set)
     for s in sigs:
@@ -212,7 +240,7 @@ def find_shared_macs(sigs, threshold):
     return {m: sorted(v) for m, v in ips.items() if len(v) >= threshold}
 
 
-def build_tenancies(sigs, shared_macs, domain_names, max_idle):
+def build_tenancies(sigs, shared_macs, domain_names, max_idle, multi_ips=()):
     by_ip = defaultdict(list)
     for s in sigs:
         by_ip[s.ip].append(s)
@@ -222,7 +250,7 @@ def build_tenancies(sigs, shared_macs, domain_names, max_idle):
         cur = None
         splits = []
         for s in lst:
-            ident = identity_of(s, shared_macs, domain_names)
+            ident = identity_of(s, shared_macs, domain_names, multi_ips)
             new = cur is None or s.ts - cur.last > max_idle
             # conn L2 주소는 경로에 따라 바뀌는 약한 증거라 점유 단말 변경 근거로 쓰지 않는다.
             splits_on = ident and ident[0] in STRONG and not (ident[0] == "mac" and s.source == "conn")
@@ -253,7 +281,7 @@ class DSU:
         return x
 
 
-def resolve(sigs, shared_threshold=2, max_idle=86400):
+def resolve(sigs, shared_threshold=2, max_idle=86400, multi_account_window=600):
     domain_names = set()
     for s in sigs:
         if s.signal == "domain":
@@ -261,7 +289,8 @@ def resolve(sigs, shared_threshold=2, max_idle=86400):
             domain_names.add(s.value[:15])
 
     shared_macs = find_shared_macs(sigs, shared_threshold)
-    tenancies, reused = build_tenancies(sigs, shared_macs, domain_names, max_idle)
+    multi_accounts = find_multi_account_ips(sigs, multi_account_window)
+    tenancies, reused = build_tenancies(sigs, shared_macs, domain_names, max_idle, multi_accounts)
 
     n = len(tenancies)
     dsu = DSU(n)
@@ -270,7 +299,7 @@ def resolve(sigs, shared_threshold=2, max_idle=86400):
     for i, t in enumerate(tenancies):
         strong[i] = dict(t.strong)
         for s in t.sigs:
-            ident = identity_of(s, shared_macs, domain_names)
+            ident = identity_of(s, shared_macs, domain_names, multi_accounts)
             if ident:
                 keys[i].add(ident)
 
@@ -305,7 +334,7 @@ def resolve(sigs, shared_threshold=2, max_idle=86400):
     for i in range(n):
         groups[dsu.find(i)].append(tenancies[i])
 
-    assets = [summarize(ts, shared_macs, domain_names) for ts in groups.values()]
+    assets = [summarize(ts, shared_macs, domain_names, multi_accounts) for ts in groups.values()]
     assets.sort(key=lambda a: (KEY_PRIORITY.index(a["id_type"]), a["hostname"] or "~", a["ips"][0]["ip"]))
     by_name = defaultdict(list)
     by_ssh_key = defaultdict(list)
@@ -334,6 +363,7 @@ def resolve(sigs, shared_threshold=2, max_idle=86400):
         "assets": assets,
         "shared_macs": shared_macs,
         "reused_ips": reused,
+        "multi_account_ips": multi_accounts,
         "conflicts": conflicts,
     }
 
@@ -354,7 +384,7 @@ def best_domain(domains):
     return max(longer, key=len) if longer else top
 
 
-def summarize(tenancies, shared_macs, domain_names):
+def summarize(tenancies, shared_macs, domain_names, multi_ips=()):
     vals = defaultdict(dict)  # signal -> {value: (max_conf, count)}
     sources = Counter()
     l2_mac = False  # ARP/DHCP 등 L2에서 직접 확인한 MAC이 있는지
@@ -367,7 +397,7 @@ def summarize(tenancies, shared_macs, domain_names):
         ips.append({"ip": t.ip, "first": t.first, "last": t.last})
         for s in t.sigs:
             count += 1
-            if identity_of(s, shared_macs, domain_names) and (id_ts is None or s.ts < id_ts):
+            if identity_of(s, shared_macs, domain_names, multi_ips) and (id_ts is None or s.ts < id_ts):
                 id_ts = s.ts
             sources[s.source] += 1
             v = s.value
@@ -377,6 +407,11 @@ def summarize(tenancies, shared_macs, domain_names):
             if s.signal == "mac" and s.source != "conn":
                 l2_mac = True
             if s.signal == "hostname" and is_group_name(s, domain_names):
+                continue
+            if untrusted_account_signal(s, multi_ips):
+                # 식별 키로 쓰지 않고, 어떤 계정들이 보였는지만 남긴다.
+                if s.signal == "machine_account":
+                    vals["multi_machine_account"][machine_key(v)] = (s.conf, 1)
                 continue
             if s.signal == "machine_account":
                 v = machine_key(v)
@@ -455,6 +490,7 @@ def summarize(tenancies, shared_macs, domain_names):
         "devices": sorted(vals.get("device", {})),
         "security_agents": sorted(vals.get("security_agent", {})),
         "ssh_host_keys": sorted(vals.get("ssh_host_key", {})),
+        "multi_machine_accounts": sorted(vals.get("multi_machine_account", {})),
         "smb_client_guids": sorted(vals.get("smb_client_guid", {})),
         # 최근 로그온 사용자: Kerberos/NTLM 인증, RDP 접속에 쓴 계정을 마지막 관측 순으로
         "recent_users": [{"user": u, "last": t, "source": src}
@@ -815,6 +851,12 @@ def write_report(path, result, st, tz, src):
         for ip, splits in result["reused_ips"].items():
             p("  %s  변경 시각: %s" % (ip, ", ".join(fmt_ts(t, tz) for t in splits)))
         p("")
+    if result["multi_account_ips"]:
+        p("[다중 머신 계정 인증 (NTLM 릴레이·해시 전달 등 공격, NAT, 장애 조치 클러스터 의심)]")
+        p("  한 IP가 짧은 시간에 여러 머신 계정으로 인증 -> 그 IP의 머신 계정은 식별 키로 쓰지 않음")
+        for ip, accts in result["multi_account_ips"].items():
+            p("  %-16s %s" % (ip, ", ".join(accts)))
+        p("")
     g = result["smb_guid_stats"]
     if g["assets"]:
         p("[SMB2 클라이언트 GUID 검증]  (식별 키로 쓸 수 있는지 판단용)")
@@ -917,6 +959,7 @@ def write_html(path, result, st, tz, src, sigs):
         "dup_hostnames": result["dup_hostnames"],
         "shared_ssh_keys": result["shared_ssh_keys"],
         "smb_guid_stats": result["smb_guid_stats"],
+        "multi_account_ips": result["multi_account_ips"],
         "assets": [dict(a, ips_text=ip_text(a, tz), id_label=KEY_LABEL[a["id_type"]],
                         first_seen=fmt_ts(a["first_seen"], tz), last_seen=fmt_ts(a["last_seen"], tz),
                         recent_users_text=[user_text([u], tz) for u in a["recent_users"]],
@@ -940,6 +983,8 @@ def main(argv=None):
     ap.add_argument("-z", "--zeek-dir", help="Zeek 로그 디렉터리 (로그량 비교용, 기본: signal_log 위치)")
     ap.add_argument("--shared-mac-threshold", type=int, default=2,
                     help="conn 출처 MAC이 이 개수 이상의 IP에 보이면 공유 MAC으로 판단 (기본 2)")
+    ap.add_argument("--multi-account-window", type=float, default=10,
+                    help="한 IP에서 이 시간(분) 안에 서로 다른 머신 계정이 2개 이상이면 그 IP의 머신 계정을 식별 키에서 제외 (기본 10)")
     ap.add_argument("--max-idle", type=float, default=24, help="IP 신호가 이 시간(시) 이상 끊기면 새 점유 구간 (기본 24)")
     ap.add_argument("--tz", type=float, default=9, help="표시 시간대 UTC 오프셋(시) (기본 9 = KST)")
     ap.add_argument("-q", "--quiet", action="store_true", help="터미널에 리포트를 출력하지 않음")
@@ -947,7 +992,7 @@ def main(argv=None):
 
     tz = dt.timezone(dt.timedelta(hours=args.tz))
     sigs = load_signals(args.signal_log)
-    result = resolve(sigs, args.shared_mac_threshold, args.max_idle * 3600)
+    result = resolve(sigs, args.shared_mac_threshold, args.max_idle * 3600, args.multi_account_window * 60)
 
     os.makedirs(args.out_dir, exist_ok=True)
     zeek_dir = args.zeek_dir or os.path.dirname(os.path.abspath(args.signal_log))

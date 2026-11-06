@@ -80,13 +80,13 @@ A-74eaea43f4  IP+시간(낮음)          -                    10.20.5.11       -
 ## 테스트
 
 ```bash
-tests/run_tests.sh                               # Zeek btest(18, 8.x는 DNS 동적 업데이트 1개 건너뜀) + 리졸버 unittest(22)
+tests/run_tests.sh                               # Zeek btest(28, 8.x는 9.x 전용 5개 건너뜀) + 리졸버 unittest(25)
 ZEEK_IMAGE=zeek/zeek:8.0.9 tests/run_tests.sh    # Zeek 8.0으로 btest
 ```
 
 - `tests/pcaps/extras.pcap`: 장비·제품 신호(syslog, User-Agent, 서버 인증서) 합성 pcap. `tests/gen_extra_pcaps.py`로 다시 만들 수 있습니다.
 - `tests/pcaps/demo.pcap`: 합성 데모. `tests/gen_demo_pcap.py`로 다시 만들 수 있습니다(`pip install scapy`).
-- `tests/pcaps/zeek/`: Zeek 프로젝트 테스트 trace 일부(BSD 라이선스, zeek/zeek v9.0.1 `testing/btest/Traces`).
+- `tests/pcaps/zeek/`: Zeek 프로젝트 테스트 trace 일부(BSD 라이선스, zeek/zeek v9.0.1 `testing/btest/Traces`). 실제 DNS 동적 업데이트, SMB2 클라이언트 GUID, 다중 머신 계정 인증(NTLM 릴레이), Cisco DHCP, TCP syslog 등 실제 트래픽 사례 포함.
 
 ## nsm_rules에 머지
 
