@@ -75,7 +75,7 @@ A-74eaea43f4  IP+시간(낮음)          -                    10.20.5.11       -
 | `smb_client_guid` | smb(SMB2 NEGOTIATE) | SMB2 클라이언트 GUID (식별 키 후보, 리포트에서 공유·변경 검증) |
 | `user_account`, `dhcp_vendor_class`, `dhcp_fingerprint` | kerberos/ntlm/rdp, dhcp | 참고 정보 (식별 키 아님) |
 
-신호 정의, 신뢰도 기준, 판정 알고리즘, 한계는 [docs/DESIGN.md](docs/DESIGN.md)에, 검증·개선 계획은 [docs/PLAN.md](docs/PLAN.md)에 있습니다.
+신호 정의, 신뢰도 기준, 판정 알고리즘, 한계는 [docs/DESIGN.md](docs/DESIGN.md)에, 검증·개선 계획은 [docs/PLAN.md](docs/PLAN.md)에 있습니다. **프로토콜별 식별·활용 스펙은 [docs/SPEC.md](docs/SPEC.md)**를 보세요.
 
 ## 테스트
 
