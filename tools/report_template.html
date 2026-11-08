@@ -82,6 +82,17 @@ footer { color: var(--muted); font-size: 12px; padding: 0 24px 24px; }
       <h2 style="margin-top:14px">신호 종류 / 출처</h2><div class="chips" id="bysignal"></div><div class="chips" id="bysource"></div></div>
   </section>
   <section class="panel">
+    <h2>OS·역할 통계</h2>
+    <div class="sub" id="or-sub" style="margin:-6px 0 12px"></div>
+    <div class="grid2">
+      <div><h3>OS 계열</h3><div id="or-family"></div>
+        <h3 style="margin-top:12px">OS 세부</h3>
+        <div class="table-wrap"><table><thead><tr><th>계열</th><th>OS</th><th>자산</th><th>비율</th></tr></thead><tbody id="or-detail"></tbody></table></div></div>
+      <div><h3>역할</h3>
+        <div class="table-wrap"><table><thead><tr><th>역할</th><th>자산</th><th>비율</th></tr></thead><tbody id="or-roles"></tbody></table></div></div>
+    </div>
+  </section>
+  <section class="panel">
     <h2>식별 품질</h2>
     <div class="sub" style="margin:-6px 0 12px">식별 = 대표 키가 IP+시간이 아님 · 신뢰 식별 = 그중 신뢰도 '낮음'(conn MAC만) 제외 · 능동 IP = 연결을 먼저 연 IP</div>
     <details class="guide" open>
@@ -156,6 +167,14 @@ $("idtypes").innerHTML = bars(st.by_id_type, st.asset_count);
 $("bysignal").innerHTML = st.by_signal.map(([k, v]) => `<span>${esc(k)} ${v}</span>`).join("");
 $("bysource").innerHTML = st.by_source.map(([k, v]) => `<span>${esc(k)} ${v}</span>`).join("");
 
+const orr = st.os_roles;
+if (orr) {
+  $("or-sub").textContent = `자산 ${orr.n}개 기준 · 역할 확인 자산 ${orr.role_assets}개 · 역할은 자산 하나에 여러 개일 수 있어 합이 100%를 넘을 수 있음`;
+  $("or-family").innerHTML = bars(orr.os_family.map(([k, v, p]) => [k, v, p]));
+  const num = (v) => `<td class="num">${v}</td>`;
+  $("or-detail").innerHTML = orr.os_detail.map(([f, d, v, p]) => `<tr><td>${esc(f)}</td><td>${esc(d)}</td>${num(v)}${num(p + "%")}</tr>`).join("");
+  $("or-roles").innerHTML = orr.roles.map(([r, v, p]) => `<tr><td>${esc(r)}</td>${num(v)}${num(p + "%")}</tr>`).join("");
+}
 const q = st.quality;
 const qCards = [["전체 식별률", q.overall.identified_pct + "%", `${q.overall.identified} / ${q.overall.n}`],
   ["전체 신뢰 식별률", q.overall.trusted_pct + "%", `${q.overall.trusted} / ${q.overall.n}`]];

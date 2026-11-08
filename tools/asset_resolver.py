@@ -650,6 +650,58 @@ def subnet_of(ip):
     return ".".join(ip.split(".")[:3]) + ".0/24"
 
 
+def os_family(os_name):
+    """표시용 OS 이름 -> (계열, 세부). 예: "Windows 11 24H2 (build 26100)" -> ("Windows", "Windows 11")."""
+    o = os_name.strip()
+    low = o.lower()
+    if not o:
+        return ("미확인", "미확인")
+    if low.startswith("windows"):
+        base = o.split(" (build")[0]
+        if low.startswith("windows server"):
+            return ("Windows Server", " ".join(base.split()[:3]))
+        if "/server" in low:
+            # 구형 빌드는 PC/서버를 가를 수 없어 이름을 그대로 둔다(예: Windows 7/Server 2008 R2).
+            return ("Windows", base)
+        m = re.match(r"(?i)windows (10/11|11|10|8\.1|8|7|vista|xp)", base)
+        if m:
+            return ("Windows", "Windows " + m.group(1).replace("vista", "Vista").replace("xp", "XP"))
+        return ("Windows", "Windows (버전 미상)")
+    if low.startswith("linux"):
+        m = re.match(r"linux\((\w+)\)", low)
+        return ("Linux", "Linux (%s)" % m.group(1).capitalize() if m else "Linux")
+    if "mac os" in low or low == "macos":
+        return ("macOS", "macOS")
+    if low.startswith("android"):
+        return ("모바일", o.capitalize())
+    if low in ("ios", "chromeos"):
+        return ("모바일" if low == "ios" else "기타", "iOS" if low == "ios" else "ChromeOS")
+    return ("기타", o)
+
+
+def os_role_stats(assets):
+    """OS 계열·세부 분포와 역할 분포(자산 수, 비율). 역할은 자산 하나가 여러 개를 가질 수 있다."""
+    n = len(assets)
+    fam, detail, roles = Counter(), Counter(), Counter()
+    for a in assets:
+        f, d = os_family(a["os"])
+        fam[f] += 1
+        detail[(f, d)] += 1
+        for r in (a["roles"] or ["미확인"]):
+            roles[r] += 1
+    last = lambda kv: (kv[0] == "미확인", -kv[1])
+    return {
+        "n": n,
+        "os_family": [(k, v, pct(v, n)) for k, v in sorted(fam.items(), key=last)],
+        # 계열별로 묶고(계열 자산 수 순), 계열 안에서는 자산 수 순
+        "os_detail": [(f, d, v, pct(v, n)) for (f, d), v in
+                      sorted(detail.items(), key=lambda kv: (kv[0][0] == "미확인", -fam[kv[0][0]],
+                                                             kv[0][0], -kv[1], kv[0][1]))],
+        "roles": [(k, v, pct(v, n)) for k, v in sorted(roles.items(), key=last)],
+        "role_assets": sum(1 for a in assets if a["roles"]),
+    }
+
+
 def id_quality(assets, active, t_start, t_end):
     """식별 품질 지표 (정답 목록 없이 계산 가능한 것).
     식별 = 대표 키가 IP+시간이 아님, 신뢰 식별 = 그중 신뢰도 '낮음'이 아닌 것."""
@@ -768,6 +820,7 @@ def stats(result, sigs, zeek_dir, signal_path):
         "coverage": [(k, v, 100.0 * v / n) for k, v in coverage],
         "volume": vol,
         "capture": health,
+        "os_roles": os_role_stats(assets),
         "quality": id_quality(assets, active, *((sigs[0].ts, sigs[-1].ts) if sigs else (0, 0))),
     }
 
@@ -805,6 +858,16 @@ def write_report(path, result, st, tz, src):
     p("[자산 요약]  총 %d개" % st["asset_count"])
     for label, c in st["by_id_type"]:
         p("  - 식별 키 %-15s: %d" % (label, c))
+    p("")
+    orr = st["os_roles"]
+    p("[OS·역할 통계]  (자산 %d개 기준, 역할은 자산 하나에 여러 개 가능)" % orr["n"])
+    p("  OS 계열   : " + ", ".join("%s %d(%.1f%%)" % r for r in orr["os_family"]))
+    p("  OS 세부")
+    for f, d, v, pc in orr["os_detail"]:
+        p("    %s %s %5d  %5.1f%%" % (pad(f, 16), pad(d, 26), v, pc))
+    p("  역할 (역할 확인 자산 %d개)" % orr["role_assets"])
+    for r, v, pc in orr["roles"]:
+        p("    %s %5d  %5.1f%%" % (pad(r, 30), v, pc))
     p("")
     q = st["quality"]
     o = q["overall"]
@@ -949,6 +1012,7 @@ def write_html(path, result, st, tz, src, sigs):
             "by_source": st["by_source"],
             "capture": st["capture"],
             "quality": st["quality"],
+            "os_roles": st["os_roles"],
             "quality_criteria": QUALITY_CRITERIA,
             "quality_metrics": QUALITY_METRICS,
             "bidir_warn_pct": BIDIR_WARN_PCT,

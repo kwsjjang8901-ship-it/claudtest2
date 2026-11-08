@@ -275,6 +275,31 @@ class TestUsersAndSmbGuid(unittest.TestCase):
         self.assertEqual(len(r["assets"]), 3)   # 참고 정보라 자산을 합치지 않는다
 
 
+class TestOsRoleStats(unittest.TestCase):
+    def test_os_family(self):
+        f = ar.os_family
+        self.assertEqual(f("Windows 11 24H2 (build 26100)"), ("Windows", "Windows 11"))
+        self.assertEqual(f("Windows Server 2022 (build 20348)"), ("Windows Server", "Windows Server 2022"))
+        self.assertEqual(f("Windows 7/Server 2008 R2 (build 7601)"), ("Windows", "Windows 7/Server 2008 R2"))
+        self.assertEqual(f("windows 10/11"), ("Windows", "Windows 10/11"))
+        self.assertEqual(f("linux(ubuntu)"), ("Linux", "Linux (Ubuntu)"))
+        self.assertEqual(f("android 14"), ("모바일", "Android 14"))
+        self.assertEqual(f(""), ("미확인", "미확인"))
+
+    def test_os_role_stats(self):
+        r = resolve([
+            sig(0, "10.0.0.1", "os_hint", "windows 10/11", "http_ua", 50),
+            sig(0, "10.0.0.2", "os_hint", "windows 10/11", "http_ua", 50),
+            sig(0, "10.0.0.3", "service", "tcp/22", "service"),
+            sig(0, "10.0.0.3", "service", "tcp/443", "service"),
+        ])
+        st = ar.os_role_stats(r["assets"])
+        self.assertEqual(st["os_family"], [("Windows", 2, 66.7), ("미확인", 1, 33.3)])
+        self.assertEqual(dict((k, v) for k, v, _ in st["roles"]), {"웹 서버": 1, "SSH 서버": 1, "미확인": 2})
+        self.assertEqual(st["roles"][-1][0], "미확인")
+        self.assertEqual(st["role_assets"], 1)
+
+
 class TestIdQuality(unittest.TestCase):
     def test_rates_curve_and_active_split(self):
         r = resolve([
