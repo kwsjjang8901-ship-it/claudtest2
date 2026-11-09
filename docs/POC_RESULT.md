@@ -131,20 +131,14 @@ PC를 식별하는 신호는 관측 위치에 따라 나오는지 여부가 정�
 
 ### 4.5 공개 데이터셋 검증 (CIC-IDS2017, DC 포함 LAN)
 
-CIC-IDS2017(캐나다 UNB CIC 공개 데이터셋) 월요일 정상 트래픽 8시간(Zeek 9.0.1)을 분석해, 데이터셋 문서에 공개된 피해자 네트워크 구성(IP·OS)과 비교했다. 운영망에서는 확보하지 못한 "DC가 보이는 LAN" 조건이다.
+CIC-IDS2017(캐나다 UNB CIC 공개 데이터셋) 월요일 정상 트래픽 8시간(Zeek 9.0.1)을 분석해, 데이터셋 문서에 공개된 피해자 네트워크 구성(호스트별 OS·역할)과 비교했다. 운영망에서는 확보하지 못한 "DC가 보이는 LAN" 조건이다. 개별 IP·호스트명은 싣지 않고 집계만 적는다.
 
-| IP | 공개 구성 | 대표 키 | 호스트명 | 판정 OS | 판정 역할 |
-|---|---|---|---|---|---|
-| .3 | DC, Windows Server 2016 | MAC | dc | Windows Server 2016 (build 14393) | 도메인 컨트롤러, DNS, 파일 서버 |
-| .50 | 웹 서버, Ubuntu 16 | 머신 계정 | cic-webserver | Linux (Ubuntu) | SSH 서버 |
-| .51 | Ubuntu Server 12 | 머신 계정 | ubuntu12srv | Linux (Ubuntu) | — |
-| .19 / .17 | Ubuntu 14.4 32/64 | 머신 계정 | ubuntu14-32 / ubuntu14-64 | Linux (Ubuntu) | — |
-| .16 / .12 | Ubuntu 16.4 32/64 | 머신 계정 | ubuntu32a / ubuntu64a | Linux (Ubuntu) | (.12 파일 서버) |
-| .9 | Windows 7 Pro | 머신 계정 | mitacs-pc6 | Windows 7/Server 2008 R2 | — |
-| .5 | Windows 8.1 | 머신 계정 | mitacs-pc3 | Windows 8.1 | — |
-| .8 | Windows Vista | 머신 계정 | mitacs-pc2 | Windows Vista/Server 2008 | — |
-| .14 / .15 | Windows 10 | 머신 계정 | mitacs-pc5 / mitacs-pc4 | Windows 10/11 | — |
-| .25 | Mac | MAC | cic-macbook-pro | macOS | — |
+| 구성 (13대) | 대표 키 | OS 판정 | 역할 판정 |
+|---|---|---|---|
+| 도메인 컨트롤러 1 (Windows Server 2016) | MAC | 1/1 일치 (Windows Server 2016) | 도메인 컨트롤러·DNS·파일 서버 |
+| Linux 서버·PC 6 (Ubuntu 12/14/16) | 머신 계정 6 | 6/6 Linux (Ubuntu) | SSH 서버 1, 파일 서버 1 |
+| Windows PC 5 (7, 8.1, Vista, 10 ×2) | 머신 계정 5 | 5/5 일치 (Windows 10 2대는 `windows 10/11`, 7·Vista는 서버 공용 빌드 병기) | — |
+| Mac 1 | MAC | 1/1 macOS | — |
 
 | 지표 | 결과 |
 |---|---|
@@ -152,7 +146,7 @@ CIC-IDS2017(캐나다 UNB CIC 공개 데이터셋) 월요일 정상 트래픽 8�
 | OS 계열 | 13/13 일치 (Windows 10/11 구분 불가 2대는 UA 한계, 서버/PC 공용 빌드는 병기) |
 | 전체 자산 | 18개(외부·IPv6 링크 로컬 일부는 IP+시간), 식별률 83.3%, 신뢰 식별 77.8% |
 | 식별 소요 시간 | 식별된 자산의 93%가 첫 관측 1분 안에 키 확보 |
-| 이상 징후 | Mac 1대가 머신 계정 2개(`cic-macbook-pro$`, `macpc$`)로 인증 → 다중 머신 계정으로 표시 |
+| 이상 징후 | Mac 1대가 머신 계정 2개로 인증 → 다중 머신 계정으로 표시 |
 
 **이 데이터로 발견해 고친 판정 오류 3가지**
 
@@ -162,7 +156,7 @@ CIC-IDS2017(캐나다 UNB CIC 공개 데이터셋) 월요일 정상 트래픽 8�
 | 도메인 가입 Linux의 Samba가 NTLM 버전 "6.1 build 0"을 보냄 | Ubuntu 2대가 Windows 7로 판정 | build 0은 "Samba (Linux/Unix)"로, 다른 출처(SSH·UA)가 있으면 그쪽 우선 |
 | SMB native OS "Unix"와 계열만 있는 UA 값("windows")이 구체적인 값을 이김 | Ubuntu 3대 "unix", Mac "unix", Windows 8.1 "windows" | 정보가 적은 값은 순위를 낮추고 동점이면 버전 있는 값 우선 |
 
-**SMB2 클라이언트 GUID 관찰:** Windows 7·10 단말의 GUID가 시간 기반(UUID v1) 형식이며 끝 6바이트가 그 단말의 MAC과 같다(예: `…-b8ac6f3607ee` = 해당 PC MAC). 한 단말에서 GUID가 바뀐 경우에도 MAC 부분은 같았다. 라우팅 구간에서 단말 MAC을 얻을 수 있는 단서라 후속 검토 대상이다.
+**SMB2 클라이언트 GUID 관찰:** Windows 7·10 단말의 GUID가 시간 기반(UUID v1) 형식이며 끝 6바이트가 그 단말의 MAC과 같다. 한 단말에서 GUID가 바뀐 경우에도 MAC 부분은 같았다. 라우팅 구간에서 단말 MAC을 얻을 수 있는 단서라 후속 검토 대상이다.
 
 ## 5. 운영 데이터로 발견해 보완한 사항
 
