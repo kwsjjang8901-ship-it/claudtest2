@@ -139,6 +139,20 @@ SERVER_ROLES = {"도메인 컨트롤러", "DNS 서버", "DHCP 서버", "웹 서�
                 "프록시/로드밸런서(추정)"}
 
 
+SAMBA_OS = "Samba (Linux/Unix)"
+
+# 계열만 알려 주는 값. 같은 출처에서 버전이 있는 값(예: windows 8.1)과 동점이면 뒤로 민다.
+GENERIC_OS = {"windows", "linux", "unix", "windows 10/11"}
+
+
+def os_rank(source, value, conf):
+    """OS 후보 순위: (출처 우선순위, 신뢰도, 구체성). 클수록 우선."""
+    if source == "smb" and value == "unix":
+        # Samba·macOS SMB 클라이언트의 native OS "Unix": 정보가 거의 없어 SSH·UA 등이 있으면 그쪽을 쓴다.
+        return (0, conf, 0)
+    return (OS_SOURCE_RANK.get(source, 1), conf, 0 if value in GENERIC_OS else 1)
+
+
 def ntlm_os_name(v, server=False):
     """NTLM 버전 구조체("windows nt 10.0 build 26100") -> OS 이름.
     Windows 10/11은 major.minor가 모두 10.0이라 빌드 번호로 구분한다."""
@@ -146,6 +160,9 @@ def ntlm_os_name(v, server=False):
     if not m:
         return v
     major, minor, build = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    if build == 0:
+        # Windows는 빌드 번호가 0일 수 없다. 도메인에 가입한 Linux/Unix의 Samba가 "6.1 build 0"을 보낸다.
+        return SAMBA_OS
     if major == 10:
         if build in SERVER_BUILDS and (server or build not in CLIENT_BUILDS):
             name = SERVER_BUILDS[build]
@@ -233,9 +250,11 @@ def find_multi_account_ips(sigs, window):
 
 
 def find_shared_macs(sigs, threshold):
+    # IPv4 주소만 센다. 듀얼 스택 호스트는 IPv4와 IPv6(링크 로컬, 임시 주소 등)가 같은 MAC을 쓰므로
+    # IPv6까지 세면 정상 호스트를 게이트웨이로 오판한다(CIC-IDS2017 데이터에서 확인).
     ips = defaultdict(set)
     for s in sigs:
-        if s.signal == "mac" and s.source == "conn":
+        if s.signal == "mac" and s.source == "conn" and ":" not in s.ip:
             ips[s.value].add(s.ip)
     return {m: sorted(v) for m, v in ips.items() if len(v) >= threshold}
 
@@ -419,7 +438,7 @@ def summarize(tenancies, shared_macs, domain_names, multi_ips=()):
                 user_seen[v] = (s.ts, s.source)
             if s.signal == "os_hint":
                 # NTLM 빌드는 역할을 안 뒤에 이름으로 바꾼다(클라이언트/서버 공용 빌드 구분).
-                rank = (OS_SOURCE_RANK.get(s.source, 1), s.conf)
+                rank = os_rank(s.source, v, s.conf)
                 key = (v, s.source == "ntlm")
                 if key not in os_cands or os_cands[key] < rank:
                     os_cands[key] = rank
@@ -463,6 +482,9 @@ def summarize(tenancies, shared_macs, domain_names, multi_ips=()):
     os_ranked = {}
     for (v, ntlm), rank in os_cands.items():
         name = ntlm_os_name(v, is_server) if ntlm else v
+        if name == SAMBA_OS:
+            # Samba라는 사실만 알 뿐 배포판은 모르므로, SSH·UA 등 다른 출처가 있으면 그쪽을 우선한다.
+            rank = (0,) + rank[1:]
         if name not in os_ranked or os_ranked[name] < rank:
             os_ranked[name] = rank
     os_list = sorted(os_ranked, key=lambda k: os_ranked[k], reverse=True)
@@ -667,6 +689,9 @@ def os_family(os_name):
         if m:
             return ("Windows", "Windows " + m.group(1).replace("vista", "Vista").replace("xp", "XP"))
         return ("Windows", "Windows (버전 미상)")
+    if low == SAMBA_OS.lower() or low == "unix":
+        # SMB1 native OS "Unix"(Samba 클라이언트), NTLM build 0(Samba)
+        return ("Linux/Unix", "Samba (Linux/Unix)" if low.startswith("samba") else "Unix (SMB)")
     if low.startswith("linux"):
         m = re.match(r"linux\((\w+)\)", low)
         return ("Linux", "Linux (%s)" % m.group(1).capitalize() if m else "Linux")

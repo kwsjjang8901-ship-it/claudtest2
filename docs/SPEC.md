@@ -281,7 +281,7 @@
 
 ### 4.2 처리 순서
 
-1. **공유 MAC 판별** (`--shared-mac-threshold`, 기본 2): conn 출처 MAC이 IP 2개 이상 → 게이트웨이·라우터·방화벽 MAC, conn 출처일 때만 식별 키에서 제외
+1. **공유 MAC 판별** (`--shared-mac-threshold`, 기본 2): conn 출처 MAC이 **IPv4** 주소 2개 이상 → 게이트웨이·라우터·방화벽 MAC, conn 출처일 때만 식별 키에서 제외. IPv6는 세지 않음(듀얼 스택 호스트 오판 방지)
 2. **다중 머신 계정 판별** (`--multi-account-window`, 기본 10분): 4.6
 3. **IP 점유 구간(tenancy) 분할:** IP별 신호를 시간순으로 보며, 강한 키(머신 계정·client-id·ARP/DHCP MAC)가 기존 값과 다르게 나오거나 `--max-idle`(24시간) 넘게 끊기면 새 구간 → DHCP 재할당으로 인한 오결합 방지
 4. **구간 결합:** 우선순위 높은 키부터 같은 키를 공유하는 구간을 union-find로 묶음. 강한 키 값이 서로 다르면 묶지 않고 "결합 보류"로 보고
@@ -295,7 +295,8 @@
 
 ### 4.4 OS 판정
 
-- 출처 우선순위: ntlm > smb > ssh > http_ua > dhcp
+- 출처 우선순위: ntlm > smb > ssh > http_ua > dhcp. 같은 순위면 버전이 있는 값을 우선("windows 8.1" > "windows")
+- 정보가 적은 값은 최하위: SMB native OS "Unix"(Samba·macOS SMB 클라이언트), NTLM build 0("Samba (Linux/Unix)", 도메인 가입 Linux의 Samba가 "6.1 build 0"을 보냄)
 - NTLM 빌드 번호 → 버전: Windows 10(1507~22H2), Windows 11(21H2~25H2), Server 2016/2019/2022/2025. 표에 없는 빌드는 22000 이상이면 Windows 11
 - PC/서버 공용 빌드(14393, 17763, 26100) 구분
   - 서버: 서버 역할(DC·DNS·DHCP·웹·DB·메일·프록시)이 있거나, 호스트명이 Windows Server 기본 이름(`WIN-` + 11자)

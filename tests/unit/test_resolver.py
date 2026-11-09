@@ -275,6 +275,35 @@ class TestUsersAndSmbGuid(unittest.TestCase):
         self.assertEqual(len(r["assets"]), 3)   # 참고 정보라 자산을 합치지 않는다
 
 
+class TestDualStackAndSamba(unittest.TestCase):
+    def test_dual_stack_host_is_not_gateway(self):
+        mac = "b8:ac:6f:36:07:ee"
+        r = resolve([
+            sig(0, "192.168.10.14", "mac", mac, "arp", 85),
+            sig(0, "192.168.10.14", "mac", mac, "conn", 40),
+            sig(1, "fe80::3c60:fc97:3f94:ac8f", "mac", mac, "conn", 40),
+            sig(2, "192.168.10.1", "mac", "00:c1:b1:14:eb:31", "conn", 40),   # 실제 라우터: IPv4 2개
+            sig(2, "172.16.0.1", "mac", "00:c1:b1:14:eb:31", "conn", 40),
+        ])
+        self.assertEqual(list(r["shared_macs"]), ["00:c1:b1:14:eb:31"])
+        pc = [a for a in r["assets"] if mac in a["macs"]]
+        self.assertEqual(len(pc), 1)                                        # IPv4·IPv6가 한 자산으로
+        self.assertEqual({i["ip"] for i in pc[0]["ips"]}, {"192.168.10.14", "fe80::3c60:fc97:3f94:ac8f"})
+        self.assertNotIn("게이트웨이/라우터(추정)", pc[0]["roles"])
+
+    def test_samba_ntlm_build0_is_not_windows(self):
+        self.assertEqual(ar.ntlm_os_name("windows nt 6.1 build 0"), ar.SAMBA_OS)
+        r = resolve([
+            sig(0, "192.168.10.12", "os_hint", "windows nt 6.1 build 0", "ntlm", 80),
+            sig(0, "192.168.10.12", "os_hint", "linux(ubuntu)", "ssh", 60),
+            sig(0, "192.168.10.13", "os_hint", "windows nt 6.1 build 0", "ntlm", 80),
+        ])
+        os_by_ip = {a["ips"][0]["ip"]: a["os"] for a in r["assets"]}
+        self.assertEqual(os_by_ip["192.168.10.12"], "linux(ubuntu)")       # SSH가 있으면 그쪽 우선
+        self.assertEqual(os_by_ip["192.168.10.13"], ar.SAMBA_OS)
+        self.assertEqual(ar.os_family(ar.SAMBA_OS), ("Linux/Unix", "Samba (Linux/Unix)"))
+
+
 class TestOsRoleStats(unittest.TestCase):
     def test_os_family(self):
         f = ar.os_family

@@ -65,7 +65,7 @@
 
 ## 4. 판정 알고리즘 (`tools/asset_resolver.py`)
 
-1. **공유 MAC 판별:** conn 출처 MAC이 IP 2개(`--shared-mac-threshold`) 이상에 보이면 게이트웨이/라우터/방화벽 MAC으로 판단합니다.
+1. **공유 MAC 판별:** conn 출처 MAC이 **IPv4** 주소 2개(`--shared-mac-threshold`) 이상에 보이면 게이트웨이/라우터/방화벽 MAC으로 판단합니다. 듀얼 스택 호스트는 IPv4와 IPv6가 같은 MAC을 쓰므로 IPv6 주소는 세지 않습니다.
    이 MAC은 conn 출처일 때만 식별 키에서 빼고, ARP/DHCP 출처일 때는 그대로 둡니다(게이트웨이 자신은 자산으로 남음).
 2. **IP 점유 구간(tenancy) 분할:** IP별 신호를 시간순으로 보며, 강한 키(머신 계정·client-id·ARP/DHCP MAC)가 기존 값과 다르게
    나타나거나 `--max-idle`(24시간) 넘게 신호가 끊기면 새 구간을 시작합니다. 이렇게 해서 DHCP 재할당으로 생기는 오결합을 막습니다.
@@ -231,6 +231,12 @@ btest는 해당 테스트에 버전 조건을 걸어 8.x에서 건너뜁니다(8
 | 장비 종류 | 34개(AhnLab MDS 32, VMware 2) | 7차와 동일 |
 | SMB2 GUID / DNS 동적 업데이트 | 0 / 0 | Zeek 9.0.1이라 DNS UPDATE도 파싱되는 환경 → 버전 한계가 아니라 이 구간에 SMB 연결 시작·DC DNS 트래픽이 없음 |
 | 로그온 사용자 | 5건 | |
+
+### 11차: 공개 데이터셋 CIC-IDS2017 (월요일 정상 트래픽, 8시간, Zeek 9.0.1)
+
+DC가 보이는 LAN 환경. 피해자 네트워크 13대를 공개 구성표와 비교해 식별 13/13, OS 계열 13/13 일치(상세는 POC_RESULT.md 4.5).
+이 데이터로 판정 오류 3가지를 고쳤다: 듀얼 스택 호스트의 공유 MAC 오판(→ IPv4만으로 판단), Samba NTLM "build 0"의 Windows 7 오판,
+정보가 적은 OS 값(SMB "Unix", UA "windows")이 구체적인 값을 이기는 문제. SMB2 GUID가 UUID v1이면 끝 6바이트가 단말 MAC임을 관찰.
 
 ### 운영 pcap 10차 결과 (새 캡처, 34분, 2026-11-06 06:47~07:21)
 
