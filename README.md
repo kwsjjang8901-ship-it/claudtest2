@@ -95,5 +95,7 @@ ZEEK_IMAGE=zeek/zeek:8.0.9 tests/run_tests.sh    # Zeek 8.0으로 btest
 
 ## 범위 밖 (Next 단계 검토)
 
+- **Suricata 연동(on/off 가능한 시그니처 탐지):** 구조 설계안은 [docs/SURICATA.md](docs/SURICATA.md)에 있습니다.
+
 - **MDS Agent 목록 대조(미관리 자산 판정):** 원페이저의 "미관리 자산 가시화" 기능입니다. 이번 PoC 범위에서 제외했고,
   Manager의 Agent 목록 조회 인터페이스가 확정되면 Next 단계에서 검토합니다.
