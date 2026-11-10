@@ -315,7 +315,7 @@ tests/
 
 | 항목 | 선택지 | 제안 |
 |---|---|---|
-| Suricata 버전 | 7.0.x / 8.0.x | 센서 OS 패키지 지원·LTS 일정 확인 후 하나로 고정 |
+| Suricata 버전 | 7.0.x / 8.0.x | **8.0.x로 고정.** 7.0은 2026-07-07에 EOL(마지막 7.0.17), 보안 패치가 더 나오지 않음. 이 설계는 AF_PACKET·eve alert만 쓰므로 8.0의 비호환 변경(PF_RING 플러그인 분리, DNS 로그 형식 v3, `stats.whitelist`→`stats.score`)의 영향이 거의 없음 |
 | 룰 소스 | ET Open / ET Pro / 사내 룰 | ET Open + 사내 룰로 시작 |
 | Zeek Community ID | nsm_rules에서 로드 / Manager 계산 | nsm_rules에서 로드 (전송 시 바로 결합 가능) |
 | 수집 에이전트 | eve 입력 추가 가능 여부, 스트림 우선순위 지원 여부 | 담당 팀 확인 필요 |
